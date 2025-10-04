@@ -15,7 +15,7 @@ from opengl_widget import OpenGLWidget
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Medical Volume Renderer")
+        self.setWindowTitle("Medical Volume Renderer v0")
         # Start with a reasonable size; user can maximize/minimize
         self.resize(1600, 900)
 

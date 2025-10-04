@@ -93,7 +93,7 @@ class OpenGLWidget(QOpenGLWidget):
             win = self.window()
             if win is not None:
                 if self._base_title is None:
-                    self._base_title = win.windowTitle() or "Medical Volume Renderer"
+                    self._base_title = win.windowTitle() or "Medical Volume Renderer v0"
                 win.setWindowTitle(f"{self._base_title} - {fps:.1f} FPS")
             # Update overlay text: File (full path), FPS, GPU
             file_line = self.dataset_path if self.dataset_path else (self.dataset_name if self.dataset_name else "-")
