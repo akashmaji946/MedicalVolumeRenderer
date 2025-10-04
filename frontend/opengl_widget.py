@@ -30,11 +30,13 @@ class OpenGLWidget(QOpenGLWidget):
         self.info_label.setStyleSheet(
             """
             QLabel {
-                background-color: rgba(0, 0, 0, 140);
-                color: white;
-                padding: 6px 8px;
-                border-radius: 6px;
+                background-color: rgba(0, 0, 0, 80);   /* very light black */
+                color: #7CFC00;                        /* lawn green */
+                padding: 4px 6px;                      /* smaller padding */
+                border-radius: 4px;
                 font-family: monospace;
+                font-size: 12px;                       /* smaller font */
+                font-weight: 200;
             }
             """
         )
@@ -42,6 +44,27 @@ class OpenGLWidget(QOpenGLWidget):
         self.info_label.setText("File: -\nFPS: 0.0\nGPU: N/A")
         self.info_label.adjustSize()
         self.info_label.setVisible(True)
+
+        # Alert banner (hidden by default)
+        self.alert_label = QLabel(self)
+        self.alert_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.alert_label.setStyleSheet(
+            """
+            QLabel {
+                background-color: rgba(200, 20, 20, 200);
+                color: white;
+                padding: 6px 10px;
+                border-radius: 4px;
+                font-family: sans-serif;
+                font-weight: 400;
+            }
+            """
+        )
+        self.alert_label.move(10, 50)
+        self.alert_label.setVisible(False)
+        self._alert_timer = QTimer(self)
+        self._alert_timer.setSingleShot(True)
+        self._alert_timer.timeout.connect(lambda: self.alert_label.setVisible(False))
 
     def initializeGL(self):
         """Called once to initialize OpenGL."""
@@ -52,6 +75,9 @@ class OpenGLWidget(QOpenGLWidget):
         self.renderer.resize(w, h)
         # Keep overlay at top-left
         self.info_label.move(10, 10)
+        # If alert is visible, keep it centered on resize
+        if hasattr(self, 'alert_label') and self.alert_label.isVisible():
+            self._center_alert()
 
     def paintGL(self):
         """Called whenever the widget needs to be repainted."""
@@ -69,7 +95,7 @@ class OpenGLWidget(QOpenGLWidget):
                 if self._base_title is None:
                     self._base_title = win.windowTitle() or "Medical Volume Renderer"
                 win.setWindowTitle(f"{self._base_title} - {fps:.1f} FPS")
-            # Update overlay text: File, FPS, GPU
+            # Update overlay text: File (full path), FPS, GPU
             file_line = self.dataset_path if self.dataset_path else (self.dataset_name if self.dataset_name else "-")
             gpu_line = self._gpu_usage_text()
             self.info_label.setText(f"File: {file_line}\nFPS: {fps:.1f}\nGPU: {gpu_line}")
@@ -107,7 +133,7 @@ class OpenGLWidget(QOpenGLWidget):
     def set_dataset_name(self, name: str):
         self.dataset_name = name or ""
         # Update immediately
-        file_line = self.dataset_name if self.dataset_name else "-"
+        file_line = self.dataset_path if self.dataset_path else (self.dataset_name if self.dataset_name else "-")
         self.info_label.setText(f"File: {file_line}\nFPS: 0.0\nGPU: {self._gpu_usage_text()}")
         self.info_label.adjustSize()
 
@@ -170,27 +196,69 @@ class OpenGLWidget(QOpenGLWidget):
 
     # --- GPU usage helper ---
     def _gpu_usage_text(self) -> str:
-        """Return GPU memory used in MB (best-effort)."""
-        # Try pynvml first
+        """Return GPU text as 'X MB [Name YGB]' or 'N/A' if unavailable."""
+        info = self._gpu_info()
+        if info is None:
+            return "N/A"
+        used_mb, total_mb, name = info
+        total_gb = total_mb / 1024.0 if total_mb else 0.0
+        name_str = name if name else "GPU"
+        if total_mb:
+            return f"{used_mb} MB [{name_str} {total_gb:.0f}GB]"
+        return f"{used_mb} MB [{name_str}]"
+
+    def _gpu_info(self):
+        """Return (used_mb, total_mb, name) or None."""
+        # Try pynvml first (NVIDIA)
         try:
             import pynvml  # type: ignore
             pynvml.nvmlInit()
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            name = pynvml.nvmlDeviceGetName(handle).decode('utf-8') if hasattr(pynvml, 'nvmlDeviceGetName') else ""
             used_mb = int(mem.used / (1024 * 1024))
+            total_mb = int(mem.total / (1024 * 1024))
             pynvml.nvmlShutdown()
-            return f"{used_mb} MB"
+            return (used_mb, total_mb, name)
         except Exception:
             pass
         # Fallback: nvidia-smi if available
         if shutil.which("nvidia-smi"):
             try:
                 out = subprocess.check_output([
-                    "nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"
-                ], stderr=subprocess.DEVNULL, text=True, timeout=0.2)
+                    "nvidia-smi", "--query-gpu=memory.used,memory.total,name", "--format=csv,noheader,nounits"
+                ], stderr=subprocess.DEVNULL, text=True, timeout=0.4)
                 first = out.strip().splitlines()[0].strip()
-                used_mb = int(first)
-                return f"{used_mb} MB"
+                parts = [p.strip() for p in first.split(',')]
+                if len(parts) >= 3:
+                    used_mb = int(parts[0])
+                    total_mb = int(parts[1])
+                    name = parts[2]
+                    return (used_mb, total_mb, name)
+                elif len(parts) >= 2:
+                    used_mb = int(parts[0])
+                    total_mb = int(parts[1])
+                    return (used_mb, total_mb, "")
             except Exception:
-                return "N/A"
-        return "N/A"
+                return None
+        return None
+
+    # --- Alert banner helpers ---
+    def _center_alert(self):
+        """Position the alert at the visual center of this widget."""
+        # Use contentsRect to account for any frame/borders
+        rect = self.contentsRect()
+        x = max(0, rect.x() + int((rect.width() - self.alert_label.width()) / 2))
+        y = max(0, rect.y() + int((rect.height() - self.alert_label.height()) / 2))
+        self.alert_label.move(x, y)
+
+    def show_alert(self, message: str, duration_ms: int = 5000):
+        """Show a temporary alert banner over the GL view (centered)."""
+        self.alert_label.setText(message)
+        self.alert_label.adjustSize()
+        self._center_alert()
+        # Also recenter on the next event loop cycle to account for any pending layout/resize
+        QTimer.singleShot(0, self._center_alert)
+        self.alert_label.raise_()
+        self.alert_label.setVisible(True)
+        self._alert_timer.start(max(0, int(duration_ms)))

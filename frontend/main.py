@@ -270,6 +270,11 @@ class MainWindow(QMainWindow):
                 self.gl_widget.update() # Trigger repaint to show bounding box
             else:
                 print("Python: Load failed.")
+                # Show alert banner
+                try:
+                    self.gl_widget.show_alert("Data loading failed", 5000)
+                except Exception:
+                    pass
 
     def on_bbox_scale_changed(self, slider_value: int):
         scale = max(0.1, min(5.0, slider_value / 100.0))
@@ -356,6 +361,10 @@ class MainWindow(QMainWindow):
             self.gl_widget.update()
         else:
             print("Python: Load failed.")
+            try:
+                self.gl_widget.show_alert("Data loading failed", 5000)
+            except Exception:
+                pass
 
     # --- Persistence for history (.mvr/history.json) ---
     def _history_dir(self) -> str:
