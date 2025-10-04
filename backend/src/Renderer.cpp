@@ -12,6 +12,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "../include/tinycolormap.h"
+
 namespace fs = std::filesystem;
 
 // Fallback for SHADERS_DIR if not provided by the build system
@@ -216,21 +218,48 @@ void Renderer::setupBoundingBox() {
     float y_min = -h / 2.0f; float y_max = h / 2.0f;
     float z_min = -d / 2.0f; float z_max = d / 2.0f;
 
-    // Define the 12 lines of the cube
-    std::vector<float> vertices = {
-        x_min, y_min, z_min,  x_max, y_min, z_min,
-        x_max, y_min, z_min,  x_max, y_max, z_min,
-        x_max, y_max, z_min,  x_min, y_max, z_min,
-        x_min, y_max, z_min,  x_min, y_min, z_min,
-        x_min, y_min, z_max,  x_max, y_min, z_max,
-        x_max, y_min, z_max,  x_max, y_max, z_max,
-        x_max, y_max, z_max,  x_min, y_max, z_max,
-        x_min, y_max, z_max,  x_min, y_min, z_max,
-        x_min, y_min, z_min,  x_min, y_min, z_max,
-        x_max, y_min, z_min,  x_max, y_min, z_max,
-        x_max, y_max, z_min,  x_max, y_max, z_max,
-        x_min, y_max, z_min,  x_min, y_max, z_max
+    // Define the 12 lines of the cube by endpoints
+    std::vector<glm::vec3> edges = {
+        // Bottom face (z = z_min)
+        {x_min, y_min, z_min}, {x_max, y_min, z_min},
+        {x_max, y_min, z_min}, {x_max, y_max, z_min},
+        {x_max, y_max, z_min}, {x_min, y_max, z_min},
+        {x_min, y_max, z_min}, {x_min, y_min, z_min},
+        // Top face (z = z_max)
+        {x_min, y_min, z_max}, {x_max, y_min, z_max},
+        {x_max, y_min, z_max}, {x_max, y_max, z_max},
+        {x_max, y_max, z_max}, {x_min, y_max, z_max},
+        {x_min, y_max, z_max}, {x_min, y_min, z_max},
+        // Vertical edges
+        {x_min, y_min, z_min}, {x_min, y_min, z_max},
+        {x_max, y_min, z_min}, {x_max, y_min, z_max},
+        {x_max, y_max, z_min}, {x_max, y_max, z_max},
+        {x_min, y_max, z_min}, {x_min, y_max, z_max}
     };
+
+    // Build interleaved position (xyz) + color (rgb) for each vertex.
+    // Color coding by edge axis: X=red, Y=green, Z=blue.
+    std::vector<float> vertices;
+    vertices.reserve(edges.size() * 6);
+    for (size_t i = 0; i < edges.size(); i += 2) {
+        glm::vec3 a = edges[i];
+        glm::vec3 b = edges[i+1];
+        glm::vec3 dir = b - a;
+        glm::vec3 color(1.0f, 1.0f, 1.0f);
+        // Determine dominant axis (edges are axis-aligned)
+        if (std::abs(dir.x) > 0.0f && dir.y == 0.0f && dir.z == 0.0f) {
+            color = glm::vec3(1.0f, 0.0f, 0.0f); // X - red
+        } else if (std::abs(dir.y) > 0.0f && dir.x == 0.0f && dir.z == 0.0f) {
+            color = glm::vec3(0.0f, 1.0f, 0.0f); // Y - green
+        } else if (std::abs(dir.z) > 0.0f && dir.x == 0.0f && dir.y == 0.0f) {
+            color = glm::vec3(0.0f, 0.0f, 1.0f); // Z - blue
+        }
+        // Push both endpoints with same color
+        vertices.push_back(a.x); vertices.push_back(a.y); vertices.push_back(a.z);
+        vertices.push_back(color.r); vertices.push_back(color.g); vertices.push_back(color.b);
+        vertices.push_back(b.x); vertices.push_back(b.y); vertices.push_back(b.z);
+        vertices.push_back(color.r); vertices.push_back(color.g); vertices.push_back(color.b);
+    }
 
     if (m_boundingBoxVAO == 0) glGenVertexArrays(1, &m_boundingBoxVAO);
     if (m_boundingBoxVBO == 0) glGenBuffers(1, &m_boundingBoxVBO);
@@ -239,8 +268,12 @@ void Renderer::setupBoundingBox() {
     glBindBuffer(GL_ARRAY_BUFFER, m_boundingBoxVBO);
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    // position
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+    // color
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
@@ -355,55 +388,85 @@ void Renderer::setupProxyCube() {
 }
 
 // --- Colormap LUT setup ---
-static void colorPreset(int preset, float t, float& r, float& g, float& b) {
-    // 10 simple presets approximating common colormaps
-    t = std::max(0.0f, std::min(1.0f, t));
+// static void colorPreset(int preset, float t, float& r, float& g, float& b) {
+//     // 10 simple presets approximating common colormaps
+//     t = std::max(0.0f, std::min(1.0f, t));
+//     switch (preset) {
+//         case 0: { // Grayscale
+//             r = g = b = t; break;
+//         }
+//         case 1: { // Inverted Grayscale
+//             r = g = b = 1.0f - t; break;
+//         }
+//         case 2: { // Hot
+//             float x = t;
+//             r = std::min(1.0f, 3.0f * x);
+//             g = std::min(1.0f, std::max(0.0f, 3.0f * x - 1.0f));
+//             b = std::min(1.0f, std::max(0.0f, 3.0f * x - 2.0f));
+//             break;
+//         }
+//         case 3: { // Cool
+//             r = t; g = 1.0f - t; b = 1.0f; break;
+//         }
+//         case 4: { // Spring
+//             r = 1.0f; g = t; b = 1.0f - t; break;
+//         }
+//         case 5: { // Summer
+//             r = t; g = 0.5f + 0.5f*t; b = 0.4f; break;
+//         }
+//         case 6: { // Autumn
+//             r = 1.0f; g = t; b = 0.0f; break;
+//         }
+//         case 7: { // Winter
+//             r = 0.0f; g = t; b = 1.0f - t; break;
+//         }
+//         case 8: { // Jet-like
+//             float r1 = std::min(1.0f, std::max(0.0f, 1.5f - std::abs(4.0f*t - 3.0f)));
+//             float g1 = std::min(1.0f, std::max(0.0f, 1.5f - std::abs(4.0f*t - 2.0f)));
+//             float b1 = std::min(1.0f, std::max(0.0f, 1.5f - std::abs(4.0f*t - 1.0f)));
+//             r = r1; g = g1; b = b1; break;
+//         }
+//         default: { // Viridis-like simple approx
+//             r = 0.267f + 0.633f*t; 
+//             g = 0.004f + 0.996f*t; 
+//             b = 0.329f + 0.671f*(1.0f - t);
+//             r = std::min(1.0f, std::max(0.0f, r));
+//             g = std::min(1.0f, std::max(0.0f, g));
+//             b = std::min(1.0f, std::max(0.0f, b));
+//             break;
+//         }
+//     }
+// }
+
+// use tinycolormap
+static void colorPreset(int preset, float t, float& r, float& g, float& b){
+    // Clamp t to [0,1]
+    if (t < 0.0f) t = 0.0f; else if (t > 1.0f) t = 1.0f;
+    using tinycolormap::ColormapType;
+    ColormapType type = ColormapType::Viridis;
+
+    // Map our 0..9 presets onto tinycolormap presets
+    // 0: Gray, 1: Gray inverted, 2: Hot, 3: Turbo (as cool-ish), 4: Plasma,
+    // 5: Cividis, 6: Inferno, 7: Magma, 8: Jet, 9: Viridis
     switch (preset) {
-        case 0: { // Grayscale
-            r = g = b = t; break;
-        }
-        case 1: { // Inverted Grayscale
-            r = g = b = 1.0f - t; break;
-        }
-        case 2: { // Hot
-            float x = t;
-            r = std::min(1.0f, 3.0f * x);
-            g = std::min(1.0f, std::max(0.0f, 3.0f * x - 1.0f));
-            b = std::min(1.0f, std::max(0.0f, 3.0f * x - 2.0f));
-            break;
-        }
-        case 3: { // Cool
-            r = t; g = 1.0f - t; b = 1.0f; break;
-        }
-        case 4: { // Spring
-            r = 1.0f; g = t; b = 1.0f - t; break;
-        }
-        case 5: { // Summer
-            r = t; g = 0.5f + 0.5f*t; b = 0.4f; break;
-        }
-        case 6: { // Autumn
-            r = 1.0f; g = t; b = 0.0f; break;
-        }
-        case 7: { // Winter
-            r = 0.0f; g = t; b = 1.0f - t; break;
-        }
-        case 8: { // Jet-like
-            float r1 = std::min(1.0f, std::max(0.0f, 1.5f - std::abs(4.0f*t - 3.0f)));
-            float g1 = std::min(1.0f, std::max(0.0f, 1.5f - std::abs(4.0f*t - 2.0f)));
-            float b1 = std::min(1.0f, std::max(0.0f, 1.5f - std::abs(4.0f*t - 1.0f)));
-            r = r1; g = g1; b = b1; break;
-        }
-        default: { // Viridis-like simple approx
-            r = 0.267f + 0.633f*t; 
-            g = 0.004f + 0.996f*t; 
-            b = 0.329f + 0.671f*(1.0f - t);
-            r = std::min(1.0f, std::max(0.0f, r));
-            g = std::min(1.0f, std::max(0.0f, g));
-            b = std::min(1.0f, std::max(0.0f, b));
-            break;
-        }
+        case 0: type = ColormapType::Gray; break;
+        case 1: type = ColormapType::Gray; t = 1.0f - t; break; // inverted gray
+        case 2: type = ColormapType::Hot; break;
+        case 3: type = ColormapType::Turbo; break;
+        case 4: type = ColormapType::Plasma; break;
+        case 5: type = ColormapType::Cividis; break;
+        case 6: type = ColormapType::Inferno; break;
+        case 7: type = ColormapType::Magma; break;
+        case 8: type = ColormapType::Jet; break;
+        default: type = ColormapType::Viridis; break;
     }
+
+    tinycolormap::Color c = tinycolormap::GetColor(static_cast<double>(t), type);
+    r = static_cast<float>(c.r());
+    g = static_cast<float>(c.g());
+    b = static_cast<float>(c.b());
 }
+
 
 void Renderer::setupColormapLUT() {
     const int N = 256;
