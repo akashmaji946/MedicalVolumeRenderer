@@ -177,26 +177,23 @@ class MainWindow(QMainWindow):
         self.slicer_timer = QTimer(self)
         self.slicer_timer.timeout.connect(self.step_slicer)
 
-        # --- Save images ---
-        save_row1 = QHBoxLayout()
-        self.btn_save_render = QPushButton("Save Render Image")
-        self.btn_save_render.clicked.connect(self.save_render_image)
-        save_row1.addWidget(self.btn_save_render)
-        self.btn_save_screenshot = QPushButton("Save Screenshot")
-        self.btn_save_screenshot.clicked.connect(self.save_full_screenshot)
-        save_row1.addWidget(self.btn_save_screenshot)
-        controls_layout.addLayout(save_row1)
-
-        save_row2 = QHBoxLayout()
-        self.btn_save_volume_only = QPushButton("Save Volume/Slice Only")
-        self.btn_save_volume_only.clicked.connect(self.save_volume_only_image)
-        save_row2.addWidget(self.btn_save_volume_only)
-        controls_layout.addLayout(save_row2)
-
         # Spacer to push items up
         controls_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
-        # Reset button at the bottom
+        # --- Save buttons (bottom) ---
+        save_bottom = QHBoxLayout()
+        self.btn_save_image = QPushButton("Save Image")
+        self.btn_save_image.setToolTip("Save only the volume/slice image (no bbox or overlay)")
+        self.btn_save_image.clicked.connect(self.save_volume_only_image)
+        save_bottom.addWidget(self.btn_save_image)
+
+        self.btn_save_screen = QPushButton("Save Screen")
+        self.btn_save_screen.setToolTip("Save a screenshot of the entire application window")
+        self.btn_save_screen.clicked.connect(self.save_full_screenshot)
+        save_bottom.addWidget(self.btn_save_screen)
+        controls_layout.addLayout(save_bottom)
+
+        # Reset button at the very bottom
         self.reset_btn = QPushButton("Reset Defaults")
         self.reset_btn.clicked.connect(self.reset_defaults)
         controls_layout.addWidget(self.reset_btn)
