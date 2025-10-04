@@ -1,6 +1,7 @@
 # frontend/opengl_widget.py
 
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
+from PyQt6.QtOpenGL import QOpenGLFramebufferObject, QOpenGLFramebufferObjectFormat
 from PyQt6.QtCore import Qt, QPoint, QTimer
 from PyQt6.QtWidgets import QLabel
 import time
@@ -119,3 +120,33 @@ class OpenGLWidget(QOpenGLWidget):
         if win is None:
             return None
         return win.grab()
+
+    def render_offscreen(self, width: int, height: int):
+        """Render the scene offscreen at the requested size and return a QImage.
+        This captures ONLY the OpenGL render (no Qt overlays).
+        """
+        # Ensure GL context is current
+        self.makeCurrent()
+        # Create FBO
+        fmt = QOpenGLFramebufferObjectFormat()
+        fmt.setAttachment(QOpenGLFramebufferObject.Attachment.Depth)
+        fbo = QOpenGLFramebufferObject(width, height, fmt)
+        if not fbo.isValid():
+            # Fallback to onscreen buffer
+            return self.grabFramebuffer()
+        # Bind FBO and render
+        fbo.bind()
+        try:
+            # Save current size
+            old_w = self.width()
+            old_h = self.height()
+            # Tell renderer to render at the requested size
+            self.renderer.resize(width, height)
+            self.renderer.render()
+            img = fbo.toImage()
+            # Restore renderer size
+            self.renderer.resize(old_w, old_h)
+        finally:
+            fbo.release()
+            self.doneCurrent()
+        return img

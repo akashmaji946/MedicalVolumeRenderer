@@ -1,13 +1,12 @@
-# frontend/main.py
-
 import sys
 import os
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QFileDialog, QCheckBox,
                              QComboBox, QLabel, QSizePolicy, QSpacerItem, QColorDialog,
-                             QSlider, QSpinBox)
+                             QSlider, QSpinBox, QInputDialog)
 from PyQt6.QtGui import QSurfaceFormat, QShortcut
 from PyQt6.QtCore import Qt, QTimer
+import json
 from PyQt6.QtGui import QSurfaceFormat  # <-- Import QSurfaceFormat
 
 import volumerenderer
@@ -41,6 +40,21 @@ class MainWindow(QMainWindow):
         self.load_button = QPushButton("Load NIfTI/DICOM File")
         self.load_button.clicked.connect(self.load_file)
         controls_layout.addWidget(self.load_button)
+
+        # History (last 10 files) — placed right under Load
+        hist_row = QHBoxLayout()
+        hist_row.addWidget(QLabel("History"))
+        self.history_combo = QComboBox()
+        self.history_paths = []  # maintain full paths in parallel
+        self.history_combo.setMinimumWidth(220)
+        hist_row.addWidget(self.history_combo)
+        self.history_load_btn = QPushButton("Load")
+        self.history_load_btn.setToolTip("Load the selected file from history")
+        self.history_load_btn.clicked.connect(self.load_from_history)
+        hist_row.addWidget(self.history_load_btn)
+        controls_layout.addLayout(hist_row)
+        # Load persisted history
+        self.load_history()
 
         # Background color selector
         bg_row = QHBoxLayout()
@@ -178,12 +192,12 @@ class MainWindow(QMainWindow):
         self.slicer_timer.timeout.connect(self.step_slicer)
 
         # Spacer to push items up
-        controls_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        controls_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
         # --- Save buttons (bottom) ---
         save_bottom = QHBoxLayout()
         self.btn_save_image = QPushButton("Save Image")
-        self.btn_save_image.setToolTip("Save only the volume/slice image (no bbox or overlay)")
+        self.btn_save_image.setToolTip("Save the volume/slice image including bounding box (overlay hidden)")
         self.btn_save_image.clicked.connect(self.save_volume_only_image)
         save_bottom.addWidget(self.btn_save_image)
 
@@ -219,6 +233,8 @@ class MainWindow(QMainWindow):
                     self.gl_widget.set_dataset_name(name)
                 except Exception:
                     self.gl_widget.set_dataset_name("")
+                # Add to history (unique, max 10)
+                self.push_history(path)
                 # Ensure current UI state is applied post-load
                 self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
                 self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
@@ -276,6 +292,81 @@ class MainWindow(QMainWindow):
         self.gl_widget.set_overlay_visible(default_show_overlay)
         self.gl_widget.update()
 
+    # --- History helpers ---
+    def push_history(self, path: str):
+        # Keep unique entries; newest first; max 10
+        if path in self.history_paths:
+            self.history_paths.remove(path)
+        self.history_paths.insert(0, path)
+        self.history_paths = self.history_paths[:10]
+        # Update combo
+        self.history_combo.blockSignals(True)
+        self.history_combo.clear()
+        self.history_combo.addItems([os.path.basename(p) for p in self.history_paths])
+        self.history_combo.blockSignals(False)
+        # Persist
+        self.save_history()
+
+    def load_from_history(self):
+        idx = self.history_combo.currentIndex()
+        if idx < 0 or idx >= len(self.history_paths):
+            return
+        path = self.history_paths[idx]
+        if not path:
+            return
+        print(f"Python: Loading {path} from history")
+        if self.renderer.load_volume(path):
+            print("Python: Load successful.")
+            try:
+                name = os.path.basename(path)
+                self.gl_widget.set_dataset_name(name)
+            except Exception:
+                self.gl_widget.set_dataset_name("")
+            # Re-apply current UI state
+            self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
+            self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
+            self.on_bbox_scale_changed(self.bbox_slider.value())
+            self.init_slicer_limits()
+            self.gl_widget.update()
+        else:
+            print("Python: Load failed.")
+
+    # --- Persistence for history (.mvr/history.json) ---
+    def _history_dir(self) -> str:
+        # Project root is one directory up from this file's directory (frontend/)
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+        d = os.path.join(root, ".mvr")
+        try:
+            os.makedirs(d, exist_ok=True)
+        except Exception:
+            pass
+        return d
+
+    def _history_file(self) -> str:
+        return os.path.join(self._history_dir(), "history.json")
+
+    def load_history(self):
+        try:
+            with open(self._history_file(), "r", encoding="utf-8") as f:
+                data = json.load(f)
+                paths = data.get("recent", [])
+                # Filter to existing files only
+                self.history_paths = [p for p in paths if isinstance(p, str) and os.path.exists(p)]
+        except Exception:
+            self.history_paths = []
+        # Populate combo
+        self.history_combo.blockSignals(True)
+        self.history_combo.clear()
+        self.history_combo.addItems([os.path.basename(p) for p in self.history_paths])
+        self.history_combo.blockSignals(False)
+
+    def save_history(self):
+        try:
+            with open(self._history_file(), "w", encoding="utf-8") as f:
+                json.dump({"recent": self.history_paths}, f, indent=2)
+        except Exception:
+            pass
+
     # --- Slicer helpers ---
     def toggle_slicer_panel(self, checked: bool):
         self.slicer_panel.setVisible(checked)
@@ -323,6 +414,37 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, caption, default_name, "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)")
         return path
 
+    def _pick_export_resolution(self):
+        """Ask user for export resolution preset or custom size.
+        Returns (width, height) or None if cancelled.
+        """
+        presets = [
+            "Window size",
+            "1920 x 1080",
+            "2560 x 1440",
+            "3840 x 2160",
+            "Custom...",
+        ]
+        choice, ok = QInputDialog.getItem(self, "Select Export Resolution", "Resolution", presets, 0, False)
+        if not ok:
+            return None
+        if choice == "Window size":
+            return (self.gl_widget.width(), self.gl_widget.height())
+        if choice == "1920 x 1080":
+            return (1920, 1080)
+        if choice == "2560 x 1440":
+            return (2560, 1440)
+        if choice == "3840 x 2160":
+            return (3840, 2160)
+        # Custom
+        w, ok1 = QInputDialog.getInt(self, "Custom Width", "Width (px)", 1920, 16, 16384, 1)
+        if not ok1:
+            return None
+        h, ok2 = QInputDialog.getInt(self, "Custom Height", "Height (px)", 1080, 16, 16384, 1)
+        if not ok2:
+            return None
+        return (int(w), int(h))
+
     def save_render_image(self):
         path = self._pick_save_path("Save Render Image", "render.png")
         if not path:
@@ -339,29 +461,26 @@ class MainWindow(QMainWindow):
             shot.save(path)
 
     def save_volume_only_image(self):
-        """Save only the volume/slice without bounding box or overlay."""
+        """Save the render image (including bounding box, overlay hidden) with custom resolution export."""
         path = self._pick_save_path("Save Volume/Slice Only", "volume.png")
         if not path:
             return
-        # Temporarily hide bbox and overlay
-        prev_bbox = self.bbox_checkbox.isChecked()
+        res = self._pick_export_resolution()
+        if not res:
+            return
+        exp_w, exp_h = res
+        # Temporarily hide overlay only (keep bbox)
         prev_overlay = self.overlay_checkbox.isChecked()
         try:
-            if prev_bbox:
-                self.bbox_checkbox.setChecked(False)
-                self.renderer.set_show_bounding_box(False)
             if prev_overlay:
                 self.overlay_checkbox.setChecked(False)
                 self.gl_widget.set_overlay_visible(False)
             self.gl_widget.update()
-            # Force a paint to ensure state is applied before capture
-            self.gl_widget.repaint()
-            img = self.gl_widget.grab_render_image()
+            # Render offscreen at requested resolution
+            img = self.gl_widget.render_offscreen(exp_w, exp_h)
             img.save(path)
         finally:
             # Restore
-            self.bbox_checkbox.setChecked(prev_bbox)
-            self.renderer.set_show_bounding_box(prev_bbox)
             self.overlay_checkbox.setChecked(prev_overlay)
             self.gl_widget.set_overlay_visible(prev_overlay)
             self.gl_widget.update()
