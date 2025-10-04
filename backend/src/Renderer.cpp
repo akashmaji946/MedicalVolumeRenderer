@@ -280,8 +280,11 @@ void Renderer::setupBoundingBox() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
-    // Frame the box with the camera so it's visible
-    m_camera.frameBox(w, h, d);
+    // Frame the box with the camera only when requested (e.g., after load)
+    if (m_shouldFrameCameraNext) {
+        m_camera.frameBox(w, h, d);
+        m_shouldFrameCameraNext = false;
+    }
 
     std::cout << "  [Renderer::setupBoundingBox] Box dimensions: " << w << "x" << h << "x" << d << std::endl;
 }
@@ -558,6 +561,7 @@ bool Renderer::loadVolume(const std::string& path) {
     // Defer GL resource setup until render(), when the QOpenGLWidget context is current.
     if (success) {
         m_needsGLSetup = true;
+        m_shouldFrameCameraNext = true; // Frame camera on first bbox build after a successful load
     }
 
     return success;

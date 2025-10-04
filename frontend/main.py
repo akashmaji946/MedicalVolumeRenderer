@@ -114,6 +114,11 @@ class MainWindow(QMainWindow):
         # Spacer to push items up
         controls_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
+        # Reset button at the bottom
+        self.reset_btn = QPushButton("Reset Defaults")
+        self.reset_btn.clicked.connect(self.reset_defaults)
+        controls_layout.addWidget(self.reset_btn)
+
         # Fix a comfortable width for the controls panel
         controls.setMinimumWidth(320)
         controls.setMaximumWidth(420)
@@ -148,6 +153,29 @@ class MainWindow(QMainWindow):
         scale = max(0.1, min(5.0, slider_value / 100.0))
         self.renderer.set_bounding_box_scale(scale)
         self.bbox_label.setText(f"Bounding Box Scale: {scale:.2f}x")
+        self.gl_widget.update()
+
+    def reset_defaults(self):
+        # Defaults
+        default_bg = (0.1, 0.1, 0.2)
+        default_cmap_idx = 0  # Gray
+        default_bbox_scale = 100  # 1.00x
+        default_show_bbox = True
+        default_show_overlay = True
+
+        # Apply to UI controls (signals will update renderer for some)
+        self.cmap_combo.setCurrentIndex(default_cmap_idx)
+        self.bbox_slider.setValue(default_bbox_scale)
+        self.bbox_checkbox.setChecked(default_show_bbox)
+        self.overlay_checkbox.setChecked(default_show_overlay)
+
+        # Apply to renderer explicitly for background color
+        r, g, b = default_bg
+        self.renderer.set_background_color(r, g, b)
+
+        # Ensure dependent updates
+        self.on_bbox_scale_changed(default_bbox_scale)
+        self.gl_widget.set_overlay_visible(default_show_overlay)
         self.gl_widget.update()
 
     def pick_background_color(self):

@@ -73,6 +73,7 @@ private:
     int  m_colormapPreset = 0; // 0..9
     glm::vec3 m_bgColor = glm::vec3(0.1f, 0.1f, 0.2f);
     float m_bboxScale = 1.0f;
+    bool  m_shouldFrameCameraNext = true;
 };
 
 #endif // RENDERER_H

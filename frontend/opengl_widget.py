@@ -90,9 +90,11 @@ class OpenGLWidget(QOpenGLWidget):
     def wheelEvent(self, event):
         # wheelDelta() is deprecated, use angleDelta()
         delta = event.angleDelta().y() / 120.0  # Usually in steps of 120
-        
-        # Sensitivity factor for zoom
-        sensitivity = 0.5
+        # Sensitivity factor for zoom (faster)
+        sensitivity = 1.5
+        # Hold Shift to zoom even faster
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            sensitivity *= 2.0
         self.renderer.camera_zoom(delta * sensitivity)
         self.update() # Trigger a repaint
 
