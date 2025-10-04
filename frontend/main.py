@@ -177,6 +177,22 @@ class MainWindow(QMainWindow):
         self.slicer_timer = QTimer(self)
         self.slicer_timer.timeout.connect(self.step_slicer)
 
+        # --- Save images ---
+        save_row1 = QHBoxLayout()
+        self.btn_save_render = QPushButton("Save Render Image")
+        self.btn_save_render.clicked.connect(self.save_render_image)
+        save_row1.addWidget(self.btn_save_render)
+        self.btn_save_screenshot = QPushButton("Save Screenshot")
+        self.btn_save_screenshot.clicked.connect(self.save_full_screenshot)
+        save_row1.addWidget(self.btn_save_screenshot)
+        controls_layout.addLayout(save_row1)
+
+        save_row2 = QHBoxLayout()
+        self.btn_save_volume_only = QPushButton("Save Volume/Slice Only")
+        self.btn_save_volume_only.clicked.connect(self.save_volume_only_image)
+        save_row2.addWidget(self.btn_save_volume_only)
+        controls_layout.addLayout(save_row2)
+
         # Spacer to push items up
         controls_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
@@ -304,6 +320,54 @@ class MainWindow(QMainWindow):
         self.slice_label.setText(f"Slice: {value}")
         self.renderer.set_slice_index(int(value))
         self.gl_widget.update()
+
+    # --- Save handlers ---
+    def _pick_save_path(self, caption: str, default_name: str = "image.png") -> str:
+        path, _ = QFileDialog.getSaveFileName(self, caption, default_name, "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)")
+        return path
+
+    def save_render_image(self):
+        path = self._pick_save_path("Save Render Image", "render.png")
+        if not path:
+            return
+        img = self.gl_widget.grab_render_image()  # QImage
+        img.save(path)
+
+    def save_full_screenshot(self):
+        path = self._pick_save_path("Save Full Screenshot", "screenshot.png")
+        if not path:
+            return
+        shot = self.gl_widget.grab_window_image()  # QPixmap
+        if shot is not None:
+            shot.save(path)
+
+    def save_volume_only_image(self):
+        """Save only the volume/slice without bounding box or overlay."""
+        path = self._pick_save_path("Save Volume/Slice Only", "volume.png")
+        if not path:
+            return
+        # Temporarily hide bbox and overlay
+        prev_bbox = self.bbox_checkbox.isChecked()
+        prev_overlay = self.overlay_checkbox.isChecked()
+        try:
+            if prev_bbox:
+                self.bbox_checkbox.setChecked(False)
+                self.renderer.set_show_bounding_box(False)
+            if prev_overlay:
+                self.overlay_checkbox.setChecked(False)
+                self.gl_widget.set_overlay_visible(False)
+            self.gl_widget.update()
+            # Force a paint to ensure state is applied before capture
+            self.gl_widget.repaint()
+            img = self.gl_widget.grab_render_image()
+            img.save(path)
+        finally:
+            # Restore
+            self.bbox_checkbox.setChecked(prev_bbox)
+            self.renderer.set_show_bounding_box(prev_bbox)
+            self.overlay_checkbox.setChecked(prev_overlay)
+            self.gl_widget.set_overlay_visible(prev_overlay)
+            self.gl_widget.update()
 
     def get_slicer_max_index(self) -> int:
         w = self.renderer.get_volume_width()

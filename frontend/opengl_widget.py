@@ -107,3 +107,15 @@ class OpenGLWidget(QOpenGLWidget):
 
     def set_overlay_visible(self, visible: bool):
         self.info_label.setVisible(bool(visible))
+
+    # --- Captures ---
+    def grab_render_image(self):
+        """Grab only the OpenGL framebuffer as a QImage (no Qt overlays)."""
+        return self.grabFramebuffer()
+
+    def grab_window_image(self):
+        """Grab the application window as a QPixmap (includes UI)."""
+        win = self.window()
+        if win is None:
+            return None
+        return win.grab()
