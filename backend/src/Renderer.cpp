@@ -34,6 +34,17 @@ static std::string loadShaderFile(const char* filename) {
     return buffer.str();
 }
 
+// --- Slicer setters (keep outside of loadShaderFile) ---
+void Renderer::setSliceMode(bool enabled) { 
+    m_sliceMode = enabled; 
+}
+void Renderer::setSliceAxis(int axis)  { 
+    m_sliceAxis = (axis<0 ? 0 : (axis>2 ? 2 : axis)); 
+}
+void Renderer::setSliceIndex(int index){ 
+    m_sliceIndex = index; 
+}
+
 Renderer::Renderer() {
     m_volumeData = std::make_unique<VolumeData>();
 }
@@ -125,8 +136,8 @@ void Renderer::render() {
         std::cout << "  [Renderer::render] Deferred GL setup completed." << std::endl;
     }
 
-    // --- Draw volume (front faces of the cube, raymarch in fragment shader) ---
-    if (m_volumeTex3D != 0 && m_volumeShader != 0 && m_proxyCubeVAO != 0){
+    // --- Draw volume or slicer ---
+    if (!m_sliceMode && m_volumeTex3D != 0 && m_volumeShader != 0 && m_proxyCubeVAO != 0){
         glUseProgram(m_volumeShader);
 
         glm::mat4 model = glm::mat4(1.0f);
@@ -179,6 +190,114 @@ void Renderer::render() {
     glEnable(GL_DEPTH_TEST);
 
         glDisable(GL_CULL_FACE);
+    }
+
+    // --- Slicer mode: draw a single textured slice quad inside the bbox ---
+    if (m_sliceMode && m_volumeTex3D != 0){
+        // Lazy compile slice shader if needed
+        if (m_sliceShader == 0){
+            std::string sVSsrc = loadShaderFile("slice.vert");
+            std::string sFSsrc = loadShaderFile("slice.frag");
+            const char* svs = sVSsrc.c_str();
+            const char* sfs = sFSsrc.c_str();
+            unsigned int svsId = glCreateShader(GL_VERTEX_SHADER);
+            glShaderSource(svsId, 1, &svs, nullptr);
+            glCompileShader(svsId);
+            unsigned int sfsId = glCreateShader(GL_FRAGMENT_SHADER);
+            glShaderSource(sfsId, 1, &sfs, nullptr);
+            glCompileShader(sfsId);
+            m_sliceShader = glCreateProgram();
+            glAttachShader(m_sliceShader, svsId);
+            glAttachShader(m_sliceShader, sfsId);
+            glLinkProgram(m_sliceShader);
+            glDeleteShader(svsId);
+            glDeleteShader(sfsId);
+        }
+
+        // Compute box min/max from volume spacing/dims (unscaled)
+        float sx = (m_volumeData->spacing_x > 0.0 ? (float)m_volumeData->spacing_x : 1.0f);
+        float sy = (m_volumeData->spacing_y > 0.0 ? (float)m_volumeData->spacing_y : 1.0f);
+        float sz = (m_volumeData->spacing_z > 0.0 ? (float)m_volumeData->spacing_z : 1.0f);
+        glm::vec3 boxSize = glm::vec3(m_volumeData->width * sx, m_volumeData->height * sy, m_volumeData->depth * sz);
+        glm::vec3 boxMin = -0.5f * boxSize;
+        glm::vec3 boxMax =  0.5f * boxSize;
+
+        // Build/update slice quad VBO
+        if (m_sliceVAO == 0) glGenVertexArrays(1, &m_sliceVAO);
+        if (m_sliceVBO == 0) glGenBuffers(1, &m_sliceVBO);
+
+        std::vector<float> quad; // positions only (3 floats)
+        quad.reserve(6*3);
+        // normalized slice position in [0,1]
+        auto clampi = [](int v, int lo, int hi){ return v<lo?lo:(v>hi?hi:v); };
+        int w = (int)m_volumeData->width;
+        int h = (int)m_volumeData->height;
+        int d = (int)m_volumeData->depth;
+        if (m_sliceAxis == 0) m_sliceIndex = clampi(m_sliceIndex, 0, d-1);
+        else if (m_sliceAxis == 1) m_sliceIndex = clampi(m_sliceIndex, 0, h-1);
+        else m_sliceIndex = clampi(m_sliceIndex, 0, w-1);
+
+        if (m_sliceAxis == 0){ // Z
+            float s = (m_sliceIndex + 0.5f) / float(std::max(1,d));
+            float z = glm::mix(boxMin.z, boxMax.z, s);
+            glm::vec3 p0(boxMin.x, boxMin.y, z);
+            glm::vec3 p1(boxMax.x, boxMin.y, z);
+            glm::vec3 p2(boxMax.x, boxMax.y, z);
+            glm::vec3 p3(boxMin.x, boxMax.y, z);
+            auto push = [&](glm::vec3 p){ quad.push_back(p.x); quad.push_back(p.y); quad.push_back(p.z); };
+            push(p0); push(p1); push(p2); push(p0); push(p2); push(p3);
+        } else if (m_sliceAxis == 1){ // Y
+            float s = (m_sliceIndex + 0.5f) / float(std::max(1,h));
+            float y = glm::mix(boxMin.y, boxMax.y, s);
+            glm::vec3 p0(boxMin.x, y, boxMin.z);
+            glm::vec3 p1(boxMax.x, y, boxMin.z);
+            glm::vec3 p2(boxMax.x, y, boxMax.z);
+            glm::vec3 p3(boxMin.x, y, boxMax.z);
+            auto push = [&](glm::vec3 p){ quad.push_back(p.x); quad.push_back(p.y); quad.push_back(p.z); };
+            push(p0); push(p1); push(p2); push(p0); push(p2); push(p3);
+        } else { // X
+            float s = (m_sliceIndex + 0.5f) / float(std::max(1,w));
+            float x = glm::mix(boxMin.x, boxMax.x, s);
+            glm::vec3 p0(x, boxMin.y, boxMin.z);
+            glm::vec3 p1(x, boxMax.y, boxMin.z);
+            glm::vec3 p2(x, boxMax.y, boxMax.z);
+            glm::vec3 p3(x, boxMin.y, boxMax.z);
+            auto push = [&](glm::vec3 p){ quad.push_back(p.x); quad.push_back(p.y); quad.push_back(p.z); };
+            push(p0); push(p1); push(p2); push(p0); push(p2); push(p3);
+        }
+
+        glBindVertexArray(m_sliceVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, m_sliceVBO);
+        glBufferData(GL_ARRAY_BUFFER, quad.size()*sizeof(float), quad.data(), GL_DYNAMIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        glUseProgram(m_sliceShader);
+        glm::mat4 model = glm::mat4(1.0f);
+        glm::mat4 view = m_camera.getViewMatrix();
+        glm::mat4 projection = m_camera.getProjectionMatrix();
+        glUniformMatrix4fv(glGetUniformLocation(m_sliceShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
+        glUniformMatrix4fv(glGetUniformLocation(m_sliceShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(m_sliceShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniform3fv(glGetUniformLocation(m_sliceShader, "uBoxMin"), 1, glm::value_ptr(boxMin));
+        glUniform3fv(glGetUniformLocation(m_sliceShader, "uBoxMax"), 1, glm::value_ptr(boxMax));
+        glUniform1i(glGetUniformLocation(m_sliceShader, "uAxis"), m_sliceAxis);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_3D, m_volumeTex3D);
+        glUniform1i(glGetUniformLocation(m_sliceShader, "uVolume"), 0);
+
+        if (m_lutTex1D != 0) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_1D, m_lutTex1D);
+            glUniform1i(glGetUniformLocation(m_sliceShader, "uLUT"), 1);
+        }
+
+        glDisable(GL_CULL_FACE);
+        glBindVertexArray(m_sliceVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
     }
 
     // Draw bounding box lines on top (avoid being occluded by proxy cube depth)

@@ -49,6 +49,10 @@ public:
     void setColormapPreset(int presetIndex);
     void setBackgroundColor(float r, float g, float b);
     void setBoundingBoxScale(float scale);
+    // Slicer controls
+    void setSliceMode(bool enabled);
+    void setSliceAxis(int axis);     // 0=Z,1=Y,2=X
+    void setSliceIndex(int index);
 
 private:
     std::unique_ptr<VolumeData> m_volumeData;
@@ -65,6 +69,10 @@ private:
     unsigned int m_proxyCubeVBO = 0;
     unsigned int m_volumeShader = 0;
     unsigned int m_lutTex1D = 0;
+    // Slicer resources
+    unsigned int m_sliceShader = 0;
+    unsigned int m_sliceVAO = 0;
+    unsigned int m_sliceVBO = 0;
 
     // Defer GL setup until a valid GL context is current (e.g., inside paintGL/render)
     bool m_needsGLSetup = false;
@@ -74,6 +82,11 @@ private:
     glm::vec3 m_bgColor = glm::vec3(0.1f, 0.1f, 0.2f);
     float m_bboxScale = 1.0f;
     bool  m_shouldFrameCameraNext = true;
+
+    // Slicer state
+    bool  m_sliceMode = false;
+    int   m_sliceAxis = 0; // 0=Z,1=Y,2=X
+    int   m_sliceIndex = 0;
 };
 
 #endif // RENDERER_H
