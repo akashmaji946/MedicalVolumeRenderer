@@ -148,13 +148,18 @@ void Renderer::render() {
         glm::mat4 invView = glm::inverse(view);
         glm::vec3 camPos = glm::vec3(invView[3]);
 
-        // Compute box min/max in world (matches setupBoundingBox, box centered at origin)
+        // Compute volume box in world space (unscaled). Box is centered at origin.
         float sx = (m_volumeData->spacing_x > 0.0 ? (float)m_volumeData->spacing_x : 1.0f);
         float sy = (m_volumeData->spacing_y > 0.0 ? (float)m_volumeData->spacing_y : 1.0f);
         float sz = (m_volumeData->spacing_z > 0.0 ? (float)m_volumeData->spacing_z : 1.0f);
         glm::vec3 boxSize = glm::vec3(m_volumeData->width * sx, m_volumeData->height * sy, m_volumeData->depth * sz);
         glm::vec3 boxMin = -0.5f * boxSize;
         glm::vec3 boxMax =  0.5f * boxSize;
+
+        // If camera is inside the volume box, render BACK faces as entry points; otherwise render FRONT faces.
+        bool inside = (camPos.x >= boxMin.x && camPos.x <= boxMax.x &&
+                       camPos.y >= boxMin.y && camPos.y <= boxMax.y &&
+                       camPos.z >= boxMin.z && camPos.z <= boxMax.z);
 
         glUniformMatrix4fv(glGetUniformLocation(m_volumeShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(glGetUniformLocation(m_volumeShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
@@ -173,6 +178,9 @@ void Renderer::render() {
         glBindTexture(GL_TEXTURE_3D, m_volumeTex3D);
         glUniform1i(glGetUniformLocation(m_volumeShader, "uVolume"), 0);
 
+        // Disable depth test for proxy volume pass to avoid near-plane and proxy-face occlusion when inside
+        glDisable(GL_DEPTH_TEST);
+
         // Bind LUT on texture unit 1
         if (m_lutTex1D != 0) {
             glActiveTexture(GL_TEXTURE1);
@@ -182,14 +190,18 @@ void Renderer::render() {
 
         // Cull back faces so fragments come from the front faces into the volume
         glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
+        // Choose cull mode based on camera being inside or outside the box
+        // Outside: cull back faces -> draw front faces as entry surface
+        // Inside:  cull front faces -> draw back faces as entry surface
+        glCullFace(inside ? GL_FRONT : GL_BACK);
 
         glBindVertexArray(m_proxyCubeVAO);
         glDrawArrays(GL_TRIANGLES, 0, 36);
         glBindVertexArray(0);
-    glEnable(GL_DEPTH_TEST);
 
+        // Restore state
         glDisable(GL_CULL_FACE);
+        glEnable(GL_DEPTH_TEST);
     }
 
     // --- Slicer mode: draw a single textured slice quad inside the bbox ---
