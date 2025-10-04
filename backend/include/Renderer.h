@@ -37,6 +37,7 @@ public:
     // --- Camera Control ---
     void camera_rotate(float dx, float dy);
     void camera_zoom(float delta);
+    void set_camera_angles(float azimuthDeg, float elevationDeg);
 
 
     void setupBoundingBox();

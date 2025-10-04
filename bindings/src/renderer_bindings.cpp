@@ -75,6 +75,8 @@ void bind_renderer(py::module_& m) {
             .def("resize", &Renderer::resize, "Resize the viewport")
             .def("camera_rotate", &Renderer::camera_rotate, "Rotate the camera")
             .def("camera_zoom", &Renderer::camera_zoom, "Zoom the camera")
+            .def("set_camera_angles", &Renderer::set_camera_angles, py::arg("azimuthDeg"), py::arg("elevationDeg"),
+                 "Set camera azimuth/elevation in degrees (elevation clamped to avoid gimbal lock)")
             // Controls
             .def("set_show_bounding_box", &Renderer::setShowBoundingBox, py::arg("show"), "Show or hide the bounding box")
             .def("set_colormap_preset", &Renderer::setColormapPreset, py::arg("preset_index"), "Set colormap preset (0..9)")

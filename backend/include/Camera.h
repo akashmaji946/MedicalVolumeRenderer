@@ -17,6 +17,7 @@ public:
     void rotate(float deltaAzimuth, float deltaElevation);
     void zoom(float deltaRadius);
     void setAspectRatio(float aspect);
+    void setAngles(float azimuthDeg, float elevationDeg);
 
     // Position the camera to frame an axis-aligned box of size w x h x d centered at the origin
     void frameBox(float w, float h, float d);
@@ -30,6 +31,7 @@ private:
     glm::vec3 m_position;
     glm::vec3 m_target;
     glm::vec3 m_up;
+    glm::vec3 m_right;  // Track right vector for stable basis
 
     float m_azimuth;    // Horizontal angle
     float m_elevation;  // Vertical angle

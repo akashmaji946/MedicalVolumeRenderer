@@ -653,6 +653,10 @@ void Renderer::camera_zoom(float delta) {
     m_camera.zoom(delta);
 }
 
+void Renderer::set_camera_angles(float azimuthDeg, float elevationDeg) {
+    m_camera.setAngles(azimuthDeg, elevationDeg);
+}
+
 void Renderer::setBackgroundColor(float r, float g, float b) {
     m_bgColor = glm::vec3(r, g, b);
 }

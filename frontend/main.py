@@ -207,6 +207,30 @@ class MainWindow(QMainWindow):
         save_bottom.addWidget(self.btn_save_screen)
         controls_layout.addLayout(save_bottom)
 
+        # View alignment row: Reset View + Z/Y/X normals in one line
+        view_row = QHBoxLayout()
+        self.reset_view_btn = QPushButton("Reset View")
+        self.reset_view_btn.setToolTip("Reset camera to initial framing without changing any other settings")
+        self.reset_view_btn.clicked.connect(self.reset_view)
+        view_row.addWidget(self.reset_view_btn)
+
+        self.btn_view_z = QPushButton("Z-normal")
+        self.btn_view_z.setToolTip("View along +Z (depth)")
+        self.btn_view_z.clicked.connect(lambda: self.view_align('Z'))
+        view_row.addWidget(self.btn_view_z)
+
+        self.btn_view_y = QPushButton("Y-normal")
+        self.btn_view_y.setToolTip("View along +Y (row)")
+        self.btn_view_y.clicked.connect(lambda: self.view_align('Y'))
+        view_row.addWidget(self.btn_view_y)
+
+        self.btn_view_x = QPushButton("X-normal")
+        self.btn_view_x.setToolTip("View along +X (col)")
+        self.btn_view_x.clicked.connect(lambda: self.view_align('X'))
+        view_row.addWidget(self.btn_view_x)
+
+        controls_layout.addLayout(view_row)
+
         # Reset button at the very bottom
         self.reset_btn = QPushButton("Reset Defaults")
         self.reset_btn.clicked.connect(self.reset_defaults)
@@ -231,6 +255,7 @@ class MainWindow(QMainWindow):
                 try:
                     name = os.path.basename(path)
                     self.gl_widget.set_dataset_name(name)
+                    self.gl_widget.set_dataset_path(path)
                 except Exception:
                     self.gl_widget.set_dataset_name("")
                 # Add to history (unique, max 10)
@@ -320,6 +345,7 @@ class MainWindow(QMainWindow):
             try:
                 name = os.path.basename(path)
                 self.gl_widget.set_dataset_name(name)
+                self.gl_widget.set_dataset_path(path)
             except Exception:
                 self.gl_widget.set_dataset_name("")
             # Re-apply current UI state
@@ -484,6 +510,35 @@ class MainWindow(QMainWindow):
             self.overlay_checkbox.setChecked(prev_overlay)
             self.gl_widget.set_overlay_visible(prev_overlay)
             self.gl_widget.update()
+
+    def reset_view(self):
+        """Reset only the camera/view to the initial framing of the current volume."""
+        try:
+            self.renderer.frame_camera_to_box()
+        except Exception:
+            pass
+        self.gl_widget.update()
+
+    def view_align(self, axis: str):
+        """Align camera to look along +axis (Z/Y/X)."""
+        # Map axis to (azimuth, elevation) in degrees for our spherical camera.
+        # Position equations:
+        #   x = r*cos(elev)*sin(azim); y = r*sin(elev); z = r*cos(elev)*cos(azim)
+        if axis == 'Z':
+            azim, elev = 0.0, 0.0        # +Z
+        elif axis == 'Y':
+            azim, elev = 0.0, 89.0       # near +Y (avoid exact pole)
+        elif axis == 'X':
+            azim, elev = 90.0, 0.0       # +X
+        else:
+            return
+        try:
+            # Reframe to a consistent radius, then set angles
+            self.renderer.frame_camera_to_box()
+            self.renderer.set_camera_angles(azim, elev)
+        except Exception as e:
+            print(f"Python: view_align error: {e}")
+        self.gl_widget.update()
 
     def get_slicer_max_index(self) -> int:
         w = self.renderer.get_volume_width()

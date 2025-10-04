@@ -13,7 +13,7 @@
 #endif
 
 Camera::Camera()
-    : m_target(0.0f, 0.0f, 0.0f), m_up(0.0f, 1.0f, 0.0f),
+    : m_target(0.0f, 0.0f, 0.0f), m_up(0.0f, 1.0f, 0.0f), m_right(1.0f, 0.0f, 0.0f),
       m_azimuth(0.0f), m_elevation(0.0f), m_radius(5.0f),
       m_fov(45.0f), m_aspectRatio(16.0f / 9.0f), m_nearPlane(0.1f), m_farPlane(100.0f)
 {
@@ -23,9 +23,13 @@ Camera::Camera()
 void Camera::rotate(float deltaAzimuth, float deltaElevation) {
     m_azimuth += deltaAzimuth;
     m_elevation += deltaElevation;
-
-    // Clamp elevation to prevent flipping
-    m_elevation = std::max(-89.0f, std::min(89.0f, m_elevation));
+    
+    // Wrap azimuth to keep it bounded
+    while (m_azimuth >= 360.0f) m_azimuth -= 360.0f;
+    while (m_azimuth <   0.0f)  m_azimuth += 360.0f;
+    
+    // Clamp elevation to prevent gimbal lock at poles (stay just shy of ±90°)
+    m_elevation = std::max(-89.9f, std::min(89.9f, m_elevation));
 
     updateCameraVectors();
 }
@@ -33,6 +37,16 @@ void Camera::rotate(float deltaAzimuth, float deltaElevation) {
 void Camera::zoom(float deltaRadius) {
     m_radius -= deltaRadius;
     m_radius = std::max(0.1f, m_radius); // Prevent zooming inside the target
+    updateCameraVectors();
+}
+
+void Camera::setAngles(float azimuthDeg, float elevationDeg) {
+    m_azimuth = azimuthDeg;
+    // Wrap azimuth to [0,360)
+    while (m_azimuth >= 360.0f) m_azimuth -= 360.0f;
+    while (m_azimuth <   0.0f)  m_azimuth += 360.0f;
+    // Clamp elevation to avoid gimbal lock
+    m_elevation = std::max(-89.9f, std::min(89.9f, elevationDeg));
     updateCameraVectors();
 }
 
@@ -48,6 +62,13 @@ void Camera::updateCameraVectors() {
     m_position.x = m_radius * cos(elev_rad) * sin(azim_rad);
     m_position.y = m_radius * sin(elev_rad);
     m_position.z = m_radius * cos(elev_rad) * cos(azim_rad);
+
+    // Build stable orthonormal basis (elevation is clamped, so no pole crossing)
+    glm::vec3 forward = glm::normalize(m_target - m_position);
+    const glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
+    
+    m_right = glm::normalize(glm::cross(worldUp, forward));
+    m_up = glm::normalize(glm::cross(forward, m_right));
 }
 
 glm::mat4 Camera::getViewMatrix() const {
@@ -88,6 +109,7 @@ void Camera::frameBox(float w, float h, float d) {
     // Focus the camera at the center
     m_target = glm::vec3(0.0f, 0.0f, 0.0f);
     m_up = glm::vec3(0.0f, 1.0f, 0.0f);
+    m_right = glm::vec3(1.0f, 0.0f, 0.0f);
 
     // Update position
     updateCameraVectors();
