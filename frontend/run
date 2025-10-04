@@ -44,4 +44,5 @@ export PYTHONPATH=$PYTHONPATH:/home/akashmaji/Downloads/MedicalVolumeRenderer/bu
 
 # # Run the Python script
 
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 QT_XCB_GL_INTEGRATION=xcb_glx "$PY" "$1"

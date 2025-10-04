@@ -60,6 +60,9 @@ void Renderer::init() {
     }
 
     std::cout << "  [Renderer::init] OpenGL version: " << glGetString(GL_VERSION) << std::endl;
+    std::cout << "  [Renderer::init] GLSL version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
+    std::cout << "  [Renderer::init] Vendor: " << glGetString(GL_VENDOR) << std::endl;
+    std::cout << "  [Renderer::init] Renderer: " << glGetString(GL_RENDERER) << std::endl;
 
     // --- Compile Shaders --- (bounding box)
     std::string bboxVSsrc = loadShaderFile("bbox.vert");
