@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QComboBox, QLabel, QSizePolicy, QSpacerItem, QColorDialog,
                              QSlider, QSpinBox)
 from PyQt6.QtGui import QSurfaceFormat, QShortcut
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QSurfaceFormat  # <-- Import QSurfaceFormat
 
 import volumerenderer
@@ -129,6 +129,22 @@ class MainWindow(QMainWindow):
         self.slicer_enable.stateChanged.connect(lambda s: self.renderer.set_slice_mode(bool(s)))
         self.slicer_panel_layout.addWidget(self.slicer_enable)
 
+        # Auto sweep controls
+        auto_row = QHBoxLayout()
+        self.slicer_auto = QCheckBox("Auto Sweep")
+        self.slicer_auto.setChecked(False)
+        self.slicer_auto.stateChanged.connect(self.toggle_auto_sweep)
+        auto_row.addWidget(self.slicer_auto)
+        auto_row.addWidget(QLabel("Speed"))
+        self.slicer_speed = QSlider(Qt.Orientation.Horizontal)
+        self.slicer_speed.setMinimum(1)   # 1 step/sec
+        self.slicer_speed.setMaximum(20)  # 20 steps/sec
+        self.slicer_speed.setValue(5)
+        self.slicer_speed.setFixedWidth(120)
+        self.slicer_speed.valueChanged.connect(self.on_slicer_speed_changed)
+        auto_row.addWidget(self.slicer_speed)
+        self.slicer_panel_layout.addLayout(auto_row)
+
         # Axis selector
         axis_row = QHBoxLayout()
         axis_row.addWidget(QLabel("Axis"))
@@ -156,6 +172,10 @@ class MainWindow(QMainWindow):
         self.slicer_panel_layout.addLayout(slice_row)
 
         controls_layout.addWidget(self.slicer_panel)
+
+        # Timer for auto sweep
+        self.slicer_timer = QTimer(self)
+        self.slicer_timer.timeout.connect(self.step_slicer)
 
         # Spacer to push items up
         controls_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
@@ -213,6 +233,8 @@ class MainWindow(QMainWindow):
         default_slicer_enabled = False
         default_slicer_axis = 0
         default_slicer_index = 0
+        default_slicer_auto = False
+        default_slicer_speed = 5
 
         # Apply to UI controls (signals will update renderer for some)
         self.cmap_combo.setCurrentIndex(default_cmap_idx)
@@ -224,6 +246,8 @@ class MainWindow(QMainWindow):
         self.slicer_axis.setCurrentIndex(default_slicer_axis)
         self.slicer_slider.setValue(default_slicer_index)
         self.slicer_spin.setValue(default_slicer_index)
+        self.slicer_auto.setChecked(default_slicer_auto)
+        self.slicer_speed.setValue(default_slicer_speed)
 
         # Apply to renderer explicitly for background color
         r, g, b = default_bg
@@ -256,6 +280,9 @@ class MainWindow(QMainWindow):
         # Send to backend
         self.renderer.set_slice_axis(axis)
         self.renderer.set_slice_index(mid)
+        # If auto sweeping, ensure timer interval updated
+        if self.slicer_auto.isChecked():
+            self.toggle_auto_sweep(True)
 
     def on_slicer_axis_changed(self, idx: int):
         self.renderer.set_slice_axis(int(idx))
@@ -272,6 +299,34 @@ class MainWindow(QMainWindow):
         self.slice_label.setText(f"Slice: {value}")
         self.renderer.set_slice_index(int(value))
         self.gl_widget.update()
+
+    def get_slicer_max_index(self) -> int:
+        w = self.renderer.get_volume_width()
+        h = self.renderer.get_volume_height()
+        d = self.renderer.get_volume_depth()
+        axis = self.slicer_axis.currentIndex()
+        return {0: max(0, d-1), 1: max(0, h-1), 2: max(0, w-1)}[axis]
+
+    def on_slicer_speed_changed(self, value: int):
+        # Adjust timer interval if running; interval in ms ~ 1000/steps_per_sec
+        if self.slicer_timer.isActive():
+            interval = max(10, int(1000 / max(1, value)))
+            self.slicer_timer.start(interval)
+
+    def toggle_auto_sweep(self, checked: bool):
+        if checked and self.slicer_enable.isChecked():
+            interval = max(10, int(1000 / max(1, self.slicer_speed.value())))
+            self.slicer_timer.start(interval)
+        else:
+            self.slicer_timer.stop()
+
+    def step_slicer(self):
+        # Move slice by +1 and wrap around
+        current = self.slicer_slider.value()
+        max_idx = self.get_slicer_max_index()
+        next_idx = 0 if max_idx <= 0 else (current + 1) % (max_idx + 1)
+        # Update via spin to keep both in sync through handlers
+        self.slicer_spin.setValue(next_idx)
 
     def pick_background_color(self):
         # Get the current window background color as starting point (fallback to dark blue)
