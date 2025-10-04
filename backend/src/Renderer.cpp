@@ -99,7 +99,7 @@ void Renderer::init() {
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glLineWidth(2.0f);
-    glClearColor(0.1f, 0.1f, 0.2f, 1.0f); // Dark blue background
+    glClearColor(m_bgColor.r, m_bgColor.g, m_bgColor.b, 1.0f);
 }
 
 void Renderer::resize(int width, int height) {
@@ -108,6 +108,8 @@ void Renderer::resize(int width, int height) {
 }
 
 void Renderer::render() {
+    // Apply current background color each frame so user changes take effect
+    glClearColor(m_bgColor.r, m_bgColor.g, m_bgColor.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     if (!isVolumeLoaded()) return;
@@ -209,9 +211,9 @@ void Renderer::setupBoundingBox() {
     float sy = (m_volumeData->spacing_y > 0.0 ? (float)m_volumeData->spacing_y : 1.0f);
     float sz = (m_volumeData->spacing_z > 0.0 ? (float)m_volumeData->spacing_z : 1.0f);
 
-    float w = m_volumeData->width * sx;
-    float h = m_volumeData->height * sy;
-    float d = m_volumeData->depth * sz;
+    float w = m_volumeData->width * sx * m_bboxScale;
+    float h = m_volumeData->height * sy * m_bboxScale;
+    float d = m_volumeData->depth * sz * m_bboxScale;
 
     // Center the box at the origin
     float x_min = -w / 2.0f; float x_max = w / 2.0f;
@@ -449,8 +451,8 @@ static void colorPreset(int preset, float t, float& r, float& g, float& b){
     // 0: Gray, 1: Gray inverted, 2: Hot, 3: Turbo (as cool-ish), 4: Plasma,
     // 5: Cividis, 6: Inferno, 7: Magma, 8: Jet, 9: Viridis
     switch (preset) {
-        case 0: type = ColormapType::Gray; break;
-        case 1: type = ColormapType::Gray; t = 1.0f - t; break; // inverted gray
+        case 0: type = ColormapType::Gray; t = 1.0f - t; break;
+        case 1: type = ColormapType::Gray; break;
         case 2: type = ColormapType::Hot; break;
         case 3: type = ColormapType::Turbo; break;
         case 4: type = ColormapType::Plasma; break;
@@ -503,6 +505,20 @@ void Renderer::camera_rotate(float dx, float dy) {
 
 void Renderer::camera_zoom(float delta) {
     m_camera.zoom(delta);
+}
+
+void Renderer::setBackgroundColor(float r, float g, float b) {
+    m_bgColor = glm::vec3(r, g, b);
+}
+
+void Renderer::setBoundingBoxScale(float scale) {
+    // Clamp scale to a sane range
+    if (scale < 0.1f) scale = 0.1f;
+    if (scale > 5.0f) scale = 5.0f;
+    if (std::abs(scale - m_bboxScale) < 1e-6f) return;
+    m_bboxScale = scale;
+    // Defer GL rebuild of the bbox to when the context is current
+    m_needsGLSetup = true;
 }
 
 bool Renderer::loadVolume(const std::string& path) {

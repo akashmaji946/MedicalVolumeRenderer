@@ -3,6 +3,8 @@
 #ifndef RENDERER_H
 #define RENDERER_H
 
+#include <glm/glm.hpp>
+
 #include "VolumeData.h"
 #include "Camera.h"
 #include <string>
@@ -45,6 +47,8 @@ public:
     // Controls
     void setShowBoundingBox(bool show);
     void setColormapPreset(int presetIndex);
+    void setBackgroundColor(float r, float g, float b);
+    void setBoundingBoxScale(float scale);
 
 private:
     std::unique_ptr<VolumeData> m_volumeData;
@@ -67,6 +71,8 @@ private:
 
     bool m_showBoundingBox = true;
     int  m_colormapPreset = 0; // 0..9
+    glm::vec3 m_bgColor = glm::vec3(0.1f, 0.1f, 0.2f);
+    float m_bboxScale = 1.0f;
 };
 
 #endif // RENDERER_H

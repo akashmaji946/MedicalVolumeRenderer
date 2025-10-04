@@ -4,7 +4,7 @@ import sys
 import os
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QFileDialog, QCheckBox,
-                             QComboBox, QLabel, QSizePolicy, QSpacerItem)
+                             QComboBox, QLabel, QSizePolicy, QSpacerItem, QColorDialog, QSlider)
 from PyQt6.QtGui import QSurfaceFormat, QShortcut
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QSurfaceFormat  # <-- Import QSurfaceFormat
@@ -40,6 +40,15 @@ class MainWindow(QMainWindow):
         self.load_button = QPushButton("Load NIfTI/DICOM File")
         self.load_button.clicked.connect(self.load_file)
         controls_layout.addWidget(self.load_button)
+
+        # Background color selector
+        bg_row = QHBoxLayout()
+        self.bg_label = QLabel("Background Color")
+        bg_row.addWidget(self.bg_label)
+        self.bg_pick_btn = QPushButton("Pick Color")
+        self.bg_pick_btn.clicked.connect(self.pick_background_color)
+        bg_row.addWidget(self.bg_pick_btn)
+        controls_layout.addLayout(bg_row)
 
         # Window controls
         win_controls_row = QHBoxLayout()
@@ -88,6 +97,20 @@ class MainWindow(QMainWindow):
         self.cmap_combo.currentIndexChanged.connect(lambda idx: self.renderer.set_colormap_preset(int(idx)))
         controls_layout.addWidget(self.cmap_combo)
 
+        # Bounding box scale slider (0.1x .. 5.0x)
+        bbox_row = QHBoxLayout()
+        self.bbox_label = QLabel("Bounding Box Scale: 1.0x")
+        bbox_row.addWidget(self.bbox_label)
+        self.bbox_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bbox_slider.setMinimum(10)   # 0.1x
+        self.bbox_slider.setMaximum(500)  # 5.0x
+        self.bbox_slider.setValue(100)    # 1.0x default
+        self.bbox_slider.setSingleStep(5)
+        self.bbox_slider.setPageStep(10)
+        self.bbox_slider.valueChanged.connect(self.on_bbox_scale_changed)
+        bbox_row.addWidget(self.bbox_slider)
+        controls_layout.addLayout(bbox_row)
+
         # Spacer to push items up
         controls_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
@@ -115,9 +138,28 @@ class MainWindow(QMainWindow):
                 # Ensure current UI state is applied post-load
                 self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
                 self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
+                # Apply current bbox scale
+                self.on_bbox_scale_changed(self.bbox_slider.value())
                 self.gl_widget.update() # Trigger repaint to show bounding box
             else:
                 print("Python: Load failed.")
+
+    def on_bbox_scale_changed(self, slider_value: int):
+        scale = max(0.1, min(5.0, slider_value / 100.0))
+        self.renderer.set_bounding_box_scale(scale)
+        self.bbox_label.setText(f"Bounding Box Scale: {scale:.2f}x")
+        self.gl_widget.update()
+
+    def pick_background_color(self):
+        # Get the current window background color as starting point (fallback to dark blue)
+        initial = QColorDialog.getColor()
+        if initial.isValid():
+            r = initial.redF()
+            g = initial.greenF()
+            b = initial.blueF()
+            # Apply to renderer
+            self.renderer.set_background_color(r, g, b)
+            self.gl_widget.update()
 
     # --- Window control helpers ---
     def toggle_fullscreen(self):

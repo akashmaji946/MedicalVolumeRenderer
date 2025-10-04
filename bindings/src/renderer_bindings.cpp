@@ -77,6 +77,10 @@ void bind_renderer(py::module_& m) {
             .def("camera_zoom", &Renderer::camera_zoom, "Zoom the camera")
             // Controls
             .def("set_show_bounding_box", &Renderer::setShowBoundingBox, py::arg("show"), "Show or hide the bounding box")
-            .def("set_colormap_preset", &Renderer::setColormapPreset, py::arg("preset_index"), "Set colormap preset (0..9)");
+            .def("set_colormap_preset", &Renderer::setColormapPreset, py::arg("preset_index"), "Set colormap preset (0..9)")
+            .def("set_background_color", &Renderer::setBackgroundColor, py::arg("r"), py::arg("g"), py::arg("b"),
+                 "Set background clear color as floats in [0,1]")
+            .def("set_bounding_box_scale", &Renderer::setBoundingBoxScale, py::arg("scale"),
+                 "Set bounding box scale (default 1.0, clamped to [0.1, 5.0])");
 
 }
