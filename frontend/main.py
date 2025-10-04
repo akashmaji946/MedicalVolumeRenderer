@@ -4,7 +4,8 @@ import sys
 import os
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QFileDialog, QCheckBox,
-                             QComboBox, QLabel, QSizePolicy, QSpacerItem, QColorDialog, QSlider)
+                             QComboBox, QLabel, QSizePolicy, QSpacerItem, QColorDialog,
+                             QSlider, QSpinBox)
 from PyQt6.QtGui import QSurfaceFormat, QShortcut
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QSurfaceFormat  # <-- Import QSurfaceFormat
@@ -111,6 +112,51 @@ class MainWindow(QMainWindow):
         bbox_row.addWidget(self.bbox_slider)
         controls_layout.addLayout(bbox_row)
 
+        # --- Slicer (collapsible) ---
+        self.slicer_toggle_btn = QPushButton("Slicer ▸")
+        self.slicer_toggle_btn.setCheckable(True)
+        self.slicer_toggle_btn.setChecked(False)
+        self.slicer_toggle_btn.toggled.connect(self.toggle_slicer_panel)
+        controls_layout.addWidget(self.slicer_toggle_btn)
+
+        self.slicer_panel = QWidget()
+        self.slicer_panel_layout = QVBoxLayout(self.slicer_panel)
+        self.slicer_panel.setVisible(False)
+
+        # Enable checkbox
+        self.slicer_enable = QCheckBox("Enable Slicer View")
+        self.slicer_enable.setChecked(False)
+        self.slicer_enable.stateChanged.connect(lambda s: self.renderer.set_slice_mode(bool(s)))
+        self.slicer_panel_layout.addWidget(self.slicer_enable)
+
+        # Axis selector
+        axis_row = QHBoxLayout()
+        axis_row.addWidget(QLabel("Axis"))
+        self.slicer_axis = QComboBox()
+        self.slicer_axis.addItems(["Z (depth)", "Y (row)", "X (col)"])
+        self.slicer_axis.currentIndexChanged.connect(self.on_slicer_axis_changed)
+        axis_row.addWidget(self.slicer_axis)
+        self.slicer_panel_layout.addLayout(axis_row)
+
+        # Slice slider + spin
+        slice_row = QHBoxLayout()
+        self.slice_label = QLabel("Slice: 0")
+        slice_row.addWidget(self.slice_label)
+        self.slicer_slider = QSlider(Qt.Orientation.Horizontal)
+        self.slicer_slider.setMinimum(0)
+        self.slicer_slider.setMaximum(0)
+        self.slicer_slider.setValue(0)
+        self.slicer_slider.valueChanged.connect(self.on_slicer_index_changed)
+        slice_row.addWidget(self.slicer_slider)
+        self.slicer_spin = QSpinBox()
+        self.slicer_spin.setMinimum(0)
+        self.slicer_spin.setMaximum(0)
+        self.slicer_spin.valueChanged.connect(self.on_slicer_index_changed)
+        slice_row.addWidget(self.slicer_spin)
+        self.slicer_panel_layout.addLayout(slice_row)
+
+        controls_layout.addWidget(self.slicer_panel)
+
         # Spacer to push items up
         controls_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
@@ -145,6 +191,8 @@ class MainWindow(QMainWindow):
                 self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
                 # Apply current bbox scale
                 self.on_bbox_scale_changed(self.bbox_slider.value())
+                # Initialize slicer limits using volume dims
+                self.init_slicer_limits()
                 self.gl_widget.update() # Trigger repaint to show bounding box
             else:
                 print("Python: Load failed.")
@@ -162,12 +210,20 @@ class MainWindow(QMainWindow):
         default_bbox_scale = 100  # 1.00x
         default_show_bbox = True
         default_show_overlay = True
+        default_slicer_enabled = False
+        default_slicer_axis = 0
+        default_slicer_index = 0
 
         # Apply to UI controls (signals will update renderer for some)
         self.cmap_combo.setCurrentIndex(default_cmap_idx)
         self.bbox_slider.setValue(default_bbox_scale)
         self.bbox_checkbox.setChecked(default_show_bbox)
         self.overlay_checkbox.setChecked(default_show_overlay)
+        self.slicer_toggle_btn.setChecked(False)
+        self.slicer_enable.setChecked(default_slicer_enabled)
+        self.slicer_axis.setCurrentIndex(default_slicer_axis)
+        self.slicer_slider.setValue(default_slicer_index)
+        self.slicer_spin.setValue(default_slicer_index)
 
         # Apply to renderer explicitly for background color
         r, g, b = default_bg
@@ -176,6 +232,45 @@ class MainWindow(QMainWindow):
         # Ensure dependent updates
         self.on_bbox_scale_changed(default_bbox_scale)
         self.gl_widget.set_overlay_visible(default_show_overlay)
+        self.gl_widget.update()
+
+    # --- Slicer helpers ---
+    def toggle_slicer_panel(self, checked: bool):
+        self.slicer_panel.setVisible(checked)
+        self.slicer_toggle_btn.setText("Slicer ▾" if checked else "Slicer ▸")
+
+    def init_slicer_limits(self):
+        # Get volume dims from backend
+        w = self.renderer.get_volume_width()
+        h = self.renderer.get_volume_height()
+        d = self.renderer.get_volume_depth()
+        # Set limits based on current axis
+        axis = self.slicer_axis.currentIndex()
+        max_idx = {0: max(0, d-1), 1: max(0, h-1), 2: max(0, w-1)}[axis]
+        self.slicer_slider.setMaximum(max_idx)
+        self.slicer_spin.setMaximum(max_idx)
+        mid = max_idx // 2
+        self.slicer_slider.setValue(mid)
+        self.slicer_spin.setValue(mid)
+        self.slice_label.setText(f"Slice: {mid}")
+        # Send to backend
+        self.renderer.set_slice_axis(axis)
+        self.renderer.set_slice_index(mid)
+
+    def on_slicer_axis_changed(self, idx: int):
+        self.renderer.set_slice_axis(int(idx))
+        self.init_slicer_limits()
+        self.gl_widget.update()
+
+    def on_slicer_index_changed(self, value: int):
+        # Keep slider and spin synchronized
+        sender = self.sender()
+        if sender is self.slicer_slider and self.slicer_spin.value() != value:
+            self.slicer_spin.setValue(value)
+        elif sender is self.slicer_spin and self.slicer_slider.value() != value:
+            self.slicer_slider.setValue(value)
+        self.slice_label.setText(f"Slice: {value}")
+        self.renderer.set_slice_index(int(value))
         self.gl_widget.update()
 
     def pick_background_color(self):
