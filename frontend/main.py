@@ -255,6 +255,11 @@ class MainWindow(QMainWindow):
 
         # Ensure dependent updates
         self.on_bbox_scale_changed(default_bbox_scale)
+        # Reset camera to frame the (unscaled) volume bounding box
+        try:
+            self.renderer.frame_camera_to_box()
+        except Exception:
+            pass
         self.gl_widget.set_overlay_visible(default_show_overlay)
         self.gl_widget.update()
 

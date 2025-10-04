@@ -49,6 +49,7 @@ public:
     void setColormapPreset(int presetIndex);
     void setBackgroundColor(float r, float g, float b);
     void setBoundingBoxScale(float scale);
+    void frameCameraToBox();
     // Slicer controls
     void setSliceMode(bool enabled);
     void setSliceAxis(int axis);     // 0=Z,1=Y,2=X

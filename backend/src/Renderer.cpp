@@ -634,24 +634,28 @@ void Renderer::setBackgroundColor(float r, float g, float b) {
 }
 
 void Renderer::setBoundingBoxScale(float scale) {
-    // Clamp scale to a sane range
-    if (scale < 0.1f) scale = 0.1f;
-    if (scale > 5.0f) scale = 5.0f;
-    if (std::abs(scale - m_bboxScale) < 1e-6f) return;
-    m_bboxScale = scale;
-    // Defer GL rebuild of the bbox to when the context is current
-    m_needsGLSetup = true;
+    m_bboxScale = std::max(0.1f, std::min(5.0f, scale));
+    m_needsGLSetup = true; // Rebuild bbox VBO with new size next frame
+}
+
+void Renderer::frameCameraToBox() {
+    if (!isVolumeLoaded()) return;
+    // Compute unscaled physical box of the volume
+    float sx = (m_volumeData->spacing_x > 0.0 ? (float)m_volumeData->spacing_x : 1.0f);
+    float sy = (m_volumeData->spacing_y > 0.0 ? (float)m_volumeData->spacing_y : 1.0f);
+    float sz = (m_volumeData->spacing_z > 0.0 ? (float)m_volumeData->spacing_z : 1.0f);
+    float w = (float)m_volumeData->width * sx;
+    float h = (float)m_volumeData->height * sy;
+    float d = (float)m_volumeData->depth * sz;
+    m_camera.frameBox(w, h, d);
 }
 
 bool Renderer::loadVolume(const std::string& path) {
-    //... (this function remains the same)
     std::cout << "      MVR INFO: Attempting to load volume from path: " << path << std::endl;
-
     if (!fs::exists(path)) {
         std::cerr << "      MVR ERROR: Path does not exist: " << path << std::endl;
         return false;
     }
-
     m_volumeData->clear();
 
     bool success = false;

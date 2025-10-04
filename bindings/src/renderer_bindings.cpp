@@ -82,6 +82,7 @@ void bind_renderer(py::module_& m) {
                  "Set background clear color as floats in [0,1]")
             .def("set_bounding_box_scale", &Renderer::setBoundingBoxScale, py::arg("scale"),
                  "Set bounding box scale (default 1.0, clamped to [0.1, 5.0])")
+            .def("frame_camera_to_box", &Renderer::frameCameraToBox, "Frame camera to volume bounding box")
             // Slicer controls
             .def("set_slice_mode", &Renderer::setSliceMode, py::arg("enabled"), "Enable/disable slicer view")
             .def("set_slice_axis", &Renderer::setSliceAxis, py::arg("axis"), "Set slicer axis: 0=Z,1=Y,2=X")
