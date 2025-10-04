@@ -42,6 +42,7 @@ public:
     void setupBoundingBox();
     void setupVolumeTexture();
     void setupProxyCube();
+    void setupFullscreenQuad();
     void setupColormapLUT();
 
     // Controls
@@ -68,6 +69,8 @@ private:
     unsigned int m_volumeTex3D = 0;
     unsigned int m_proxyCubeVAO = 0;
     unsigned int m_proxyCubeVBO = 0;
+    unsigned int m_fullscreenQuadVAO = 0;
+    unsigned int m_fullscreenQuadVBO = 0;
     unsigned int m_volumeShader = 0;
     unsigned int m_lutTex1D = 0;
     // Slicer resources

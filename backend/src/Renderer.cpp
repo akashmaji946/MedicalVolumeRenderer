@@ -130,6 +130,7 @@ void Renderer::render() {
         // Build or rebuild GL resources tied to the current context
         setupVolumeTexture();
         setupProxyCube();
+        setupFullscreenQuad();
         setupBoundingBox();
         setupColormapLUT();
         m_needsGLSetup = false;
@@ -137,12 +138,13 @@ void Renderer::render() {
     }
 
     // --- Draw volume or slicer ---
-    if (!m_sliceMode && m_volumeTex3D != 0 && m_volumeShader != 0 && m_proxyCubeVAO != 0){
+    if (!m_sliceMode && m_volumeTex3D != 0 && m_volumeShader != 0 && m_fullscreenQuadVAO != 0){
         glUseProgram(m_volumeShader);
 
-        glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = m_camera.getViewMatrix();
         glm::mat4 projection = m_camera.getProjectionMatrix();
+        glm::mat4 viewProj = projection * view;
+        glm::mat4 invViewProj = glm::inverse(viewProj);
 
         // Camera position from inverse view
         glm::mat4 invView = glm::inverse(view);
@@ -156,14 +158,7 @@ void Renderer::render() {
         glm::vec3 boxMin = -0.5f * boxSize;
         glm::vec3 boxMax =  0.5f * boxSize;
 
-        // If camera is inside the volume box, render BACK faces as entry points; otherwise render FRONT faces.
-        bool inside = (camPos.x >= boxMin.x && camPos.x <= boxMax.x &&
-                       camPos.y >= boxMin.y && camPos.y <= boxMax.y &&
-                       camPos.z >= boxMin.z && camPos.z <= boxMax.z);
-
-        glUniformMatrix4fv(glGetUniformLocation(m_volumeShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
-        glUniformMatrix4fv(glGetUniformLocation(m_volumeShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(glGetUniformLocation(m_volumeShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(m_volumeShader, "uInvViewProj"), 1, GL_FALSE, glm::value_ptr(invViewProj));
         glUniform3fv(glGetUniformLocation(m_volumeShader, "uCamPos"), 1, glm::value_ptr(camPos));
         glUniform3fv(glGetUniformLocation(m_volumeShader, "uBoxMin"), 1, glm::value_ptr(boxMin));
         glUniform3fv(glGetUniformLocation(m_volumeShader, "uBoxMax"), 1, glm::value_ptr(boxMax));
@@ -178,9 +173,6 @@ void Renderer::render() {
         glBindTexture(GL_TEXTURE_3D, m_volumeTex3D);
         glUniform1i(glGetUniformLocation(m_volumeShader, "uVolume"), 0);
 
-        // Disable depth test for proxy volume pass to avoid near-plane and proxy-face occlusion when inside
-        glDisable(GL_DEPTH_TEST);
-
         // Bind LUT on texture unit 1
         if (m_lutTex1D != 0) {
             glActiveTexture(GL_TEXTURE1);
@@ -188,19 +180,15 @@ void Renderer::render() {
             glUniform1i(glGetUniformLocation(m_volumeShader, "uLUT"), 1);
         }
 
-        // Cull back faces so fragments come from the front faces into the volume
-        glEnable(GL_CULL_FACE);
-        // Choose cull mode based on camera being inside or outside the box
-        // Outside: cull back faces -> draw front faces as entry surface
-        // Inside:  cull front faces -> draw back faces as entry surface
-        glCullFace(inside ? GL_FRONT : GL_BACK);
+        // Disable depth test for fullscreen quad to avoid occlusion
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
 
-        glBindVertexArray(m_proxyCubeVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(m_fullscreenQuadVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
 
         // Restore state
-        glDisable(GL_CULL_FACE);
         glEnable(GL_DEPTH_TEST);
     }
 
@@ -503,9 +491,9 @@ void Renderer::setupProxyCube() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
-    // Compile volume shader
-    std::string volVSsrc = loadShaderFile("vol.vert");
-    std::string volFSsrc = loadShaderFile("vol.frag");
+    // Compile volume shader (fullscreen quad approach)
+    std::string volVSsrc = loadShaderFile("vol_fullscreen.vert");
+    std::string volFSsrc = loadShaderFile("vol_fullscreen.frag");
     const char* vssc = volVSsrc.c_str();
     const char* fssc = volFSsrc.c_str();
 
@@ -603,6 +591,30 @@ static void colorPreset(int preset, float t, float& r, float& g, float& b){
     b = static_cast<float>(c.b());
 }
 
+
+void Renderer::setupFullscreenQuad() {
+    // Fullscreen quad in NDC coordinates [-1,1]
+    float quadVertices[] = {
+        // positions (x, y)
+        -1.0f, -1.0f,
+         1.0f, -1.0f,
+         1.0f,  1.0f,
+        -1.0f, -1.0f,
+         1.0f,  1.0f,
+        -1.0f,  1.0f
+    };
+
+    if (m_fullscreenQuadVAO == 0) glGenVertexArrays(1, &m_fullscreenQuadVAO);
+    if (m_fullscreenQuadVBO == 0) glGenBuffers(1, &m_fullscreenQuadVBO);
+
+    glBindVertexArray(m_fullscreenQuadVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_fullscreenQuadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
 
 void Renderer::setupColormapLUT() {
     const int N = 256;
