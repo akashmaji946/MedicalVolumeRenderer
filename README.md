@@ -26,6 +26,7 @@ A lightweight OpenGL-based 3D volume renderer with a simple PyQt6 UI. Supports l
 
 - Mouse drag (LMB): Orbit camera
 - Mouse wheel: Zoom
+- History: Load a NIfTI file from the UI ("Load NIfTI/DICOM File") or use the History dropdown.
 - Buttons: Reset View, Z/Y/X-normal for axis-aligned views
 - Toggles: Show Bounding Box, Show Overlay
 - Colormap: Choose from presets (Grayscale, Viridis-like, etc.)
