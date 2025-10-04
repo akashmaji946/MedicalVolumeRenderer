@@ -1,0 +1,3 @@
+[submodule "backend/extern/nifti_clib"]
+	path = backend/extern/nifti_clib
+	url = https://github.com/NIFTI-Imaging/nifti_clib.git
