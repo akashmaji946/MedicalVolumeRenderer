@@ -18,6 +18,9 @@ public:
     void zoom(float deltaRadius);
     void setAspectRatio(float aspect);
 
+    // Position the camera to frame an axis-aligned box of size w x h x d centered at the origin
+    void frameBox(float w, float h, float d);
+
     glm::mat4 getViewMatrix() const;
     glm::mat4 getProjectionMatrix() const;
 

@@ -8,6 +8,8 @@
 #include "../include/VolumeData.h"
 #include <iostream>
 #include <vector>
+#include <algorithm>
+#include <cstdint>
 
 // nifti_clib includes
 extern "C" {
@@ -43,24 +45,79 @@ bool loadNIFTI(const std::string& filePath, VolumeData& volumeData) {
     volumeData.spacing_y = nim->dy;
     volumeData.spacing_z = nim->dz;
 
-    // 2. Check data type and copy pixel data.
-    // This example assumes the data is 16-bit unsigned integers.
-    // A more robust implementation would handle different data types.
-    if (nim->datatype!= NIFTI_TYPE_UINT16) {
-        std::cerr << "      MVR Warning: NIfTI data type is not UINT16. Attempting to cast." << std::endl;
-        // In a real application, you would handle different types properly.
-    }
-
-    const uint16_t* nifti_data = static_cast<uint16_t*>(nim->data);
-    if (!nifti_data) {
+    // 2. Read and convert data into uint16_t buffer with normalization.
+    if (!nim->data) {
         std::cerr << "      MVR Error: NIfTI file contains no pixel data." << std::endl;
         nifti_image_free(nim);
         return false;
     }
 
-    size_t num_voxels = nim->nvox;
+    const size_t num_voxels = static_cast<size_t>(nim->nvox);
     volumeData.data.resize(num_voxels);
-    std::copy(nifti_data, nifti_data + num_voxels, volumeData.data.begin());
+
+    // Helper lambdas
+    auto apply_slope_inter = [&](double v) -> double {
+        double slope = (nim->scl_slope == 0.0) ? 1.0 : nim->scl_slope;
+        double inter = nim->scl_inter;
+        return v * slope + inter;
+    };
+
+    auto normalize_to_u16 = [&](const std::vector<double>& src){
+        if (src.empty()) return;
+        auto [minIt, maxIt] = std::minmax_element(src.begin(), src.end());
+        double mn = *minIt, mx = *maxIt;
+        if (mx <= mn) {
+            std::fill(volumeData.data.begin(), volumeData.data.end(), 0);
+            return;
+        }
+        const double scale = 65535.0 / (mx - mn);
+        for (size_t i = 0; i < num_voxels; ++i) {
+            double v = (src[i] - mn) * scale;
+            if (v < 0.0) v = 0.0; else if (v > 65535.0) v = 65535.0;
+            volumeData.data[i] = static_cast<uint16_t>(v + 0.5);
+        }
+    };
+
+    switch (nim->datatype) {
+        case NIFTI_TYPE_UINT16: {
+            const uint16_t* ptr = static_cast<uint16_t*>(nim->data);
+            std::copy(ptr, ptr + num_voxels, volumeData.data.begin());
+            break;
+        }
+        case NIFTI_TYPE_INT16: {
+            const int16_t* ptr = static_cast<int16_t*>(nim->data);
+            std::vector<double> tmp(num_voxels);
+            for (size_t i = 0; i < num_voxels; ++i) tmp[i] = apply_slope_inter(static_cast<double>(ptr[i]));
+            normalize_to_u16(tmp);
+            break;
+        }
+        case NIFTI_TYPE_UINT8: {
+            const uint8_t* ptr = static_cast<uint8_t*>(nim->data);
+            // Expand 8-bit to 16-bit
+            for (size_t i = 0; i < num_voxels; ++i) volumeData.data[i] = static_cast<uint16_t>(ptr[i]) * 257u;
+            break;
+        }
+        case NIFTI_TYPE_FLOAT32: {
+            const float* ptr = static_cast<float*>(nim->data);
+            std::vector<double> tmp(num_voxels);
+            for (size_t i = 0; i < num_voxels; ++i) tmp[i] = apply_slope_inter(static_cast<double>(ptr[i]));
+            normalize_to_u16(tmp);
+            break;
+        }
+        case NIFTI_TYPE_FLOAT64: {
+            const double* ptr = static_cast<double*>(nim->data);
+            std::vector<double> tmp(num_voxels);
+            for (size_t i = 0; i < num_voxels; ++i) tmp[i] = apply_slope_inter(ptr[i]);
+            normalize_to_u16(tmp);
+            break;
+        }
+        default: {
+            std::cerr << "      MVR Warning: Unsupported NIfTI datatype (code " << nim->datatype << "), normalizing as bytes." << std::endl;
+            const uint8_t* ptr = static_cast<uint8_t*>(nim->data);
+            for (size_t i = 0; i < num_voxels; ++i) volumeData.data[i] = static_cast<uint16_t>(ptr[i]) * 257u;
+            break;
+        }
+    }
 
     // 3. Clean up by freeing the nifti_image struct.
     nifti_image_free(nim);

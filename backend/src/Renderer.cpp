@@ -4,16 +4,442 @@
 #include "../include/DataLoader.h"
 #include <filesystem>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 
-#include <glad/glad.h>
+#include "../glad/glad.hpp"
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace fs = std::filesystem;
 
+// Fallback for SHADERS_DIR if not provided by the build system
+#ifndef SHADERS_DIR
+    #define SHADERS_DIR "../shaders"
+#endif
+
+// Helper to load shader source from file under SHADERS_DIR
+static std::string loadShaderFile(const char* filename) {
+    std::string fullPath = std::string(SHADERS_DIR) + "/" + filename;
+    std::ifstream file(fullPath);
+    if (!file.is_open()) {
+        std::cerr << "[Renderer] ERROR: Cannot open shader file: " << fullPath << std::endl;
+        return std::string();
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
 Renderer::Renderer() {
     m_volumeData = std::make_unique<VolumeData>();
+}
+
+
+void Renderer::init() {
+    // Initialize GL loader (GLAD).
+    // In Qt, the context is current when this is called, so glad can query via system loader.
+    // If this fails, nothing will render.
+    if (!gladLoadGL()) {
+        std::cerr << "  [Renderer::init] ERROR: Failed to initialize GLAD. OpenGL functions unavailable." << std::endl;
+        return;
+    }
+
+    std::cout << "  [Renderer::init] OpenGL version: " << glGetString(GL_VERSION) << std::endl;
+
+    // --- Compile Shaders --- (bounding box)
+    std::string bboxVSsrc = loadShaderFile("bbox.vert");
+    std::string bboxFSsrc = loadShaderFile("bbox.frag");
+    const char* bboxVS = bboxVSsrc.c_str();
+    const char* bboxFS = bboxFSsrc.c_str();
+
+    unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, &bboxVS, NULL);
+    glCompileShader(vertexShader);
+    {
+        int success = 0; char log[1024] = {0};
+        glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            glGetShaderInfoLog(vertexShader, sizeof(log), nullptr, log);
+            std::cerr << "[Renderer::init] ERROR: Vertex shader compile failed: " << log << std::endl;
+        }
+    }
+
+    unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &bboxFS, NULL);
+    glCompileShader(fragmentShader);
+    {
+        int success = 0; char log[1024] = {0};
+        glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            glGetShaderInfoLog(fragmentShader, sizeof(log), nullptr, log);
+            std::cerr << "[Renderer::init] ERROR: Fragment shader compile failed: " << log << std::endl;
+        }
+    }
+
+    m_shaderProgram = glCreateProgram();
+    glAttachShader(m_shaderProgram, vertexShader);
+    glAttachShader(m_shaderProgram, fragmentShader);
+    glLinkProgram(m_shaderProgram);
+    {
+        int success = 0; char log[1024] = {0};
+        glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &success);
+        if (!success) {
+            glGetProgramInfoLog(m_shaderProgram, sizeof(log), nullptr, log);
+            std::cerr << "[Renderer::init] ERROR: Shader program link failed: " << log << std::endl;
+        }
+    }
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    // --- OpenGL State ---
+    glEnable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glLineWidth(2.0f);
+    glClearColor(0.1f, 0.1f, 0.2f, 1.0f); // Dark blue background
+}
+
+void Renderer::resize(int width, int height) {
+    glViewport(0, 0, width, height);
+    m_camera.setAspectRatio((float)width / (float)height);
+}
+
+void Renderer::render() {
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    if (!isVolumeLoaded()) return;
+
+    // If a new volume was loaded, set up GL resources now (context is current in paintGL)
+    if (m_needsGLSetup) {
+        // Build or rebuild GL resources tied to the current context
+        setupVolumeTexture();
+        setupProxyCube();
+        setupBoundingBox();
+        setupColormapLUT();
+        m_needsGLSetup = false;
+        std::cout << "  [Renderer::render] Deferred GL setup completed." << std::endl;
+    }
+
+    // --- Draw volume (front faces of the cube, raymarch in fragment shader) ---
+    if (m_volumeTex3D != 0 && m_volumeShader != 0 && m_proxyCubeVAO != 0){
+        glUseProgram(m_volumeShader);
+
+        glm::mat4 model = glm::mat4(1.0f);
+        glm::mat4 view = m_camera.getViewMatrix();
+        glm::mat4 projection = m_camera.getProjectionMatrix();
+
+        // Camera position from inverse view
+        glm::mat4 invView = glm::inverse(view);
+        glm::vec3 camPos = glm::vec3(invView[3]);
+
+        // Compute box min/max in world (matches setupBoundingBox, box centered at origin)
+        float sx = (m_volumeData->spacing_x > 0.0 ? (float)m_volumeData->spacing_x : 1.0f);
+        float sy = (m_volumeData->spacing_y > 0.0 ? (float)m_volumeData->spacing_y : 1.0f);
+        float sz = (m_volumeData->spacing_z > 0.0 ? (float)m_volumeData->spacing_z : 1.0f);
+        glm::vec3 boxSize = glm::vec3(m_volumeData->width * sx, m_volumeData->height * sy, m_volumeData->depth * sz);
+        glm::vec3 boxMin = -0.5f * boxSize;
+        glm::vec3 boxMax =  0.5f * boxSize;
+
+        glUniformMatrix4fv(glGetUniformLocation(m_volumeShader, "model"), 1, GL_FALSE, glm::value_ptr(model));
+        glUniformMatrix4fv(glGetUniformLocation(m_volumeShader, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(m_volumeShader, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniform3fv(glGetUniformLocation(m_volumeShader, "uCamPos"), 1, glm::value_ptr(camPos));
+        glUniform3fv(glGetUniformLocation(m_volumeShader, "uBoxMin"), 1, glm::value_ptr(boxMin));
+        glUniform3fv(glGetUniformLocation(m_volumeShader, "uBoxMax"), 1, glm::value_ptr(boxMax));
+
+        // Choose step based on box diagonal to target ~256 samples across the volume
+        float diag = glm::length(boxSize);
+        float step = diag / 256.0f; // tune for quality/perf
+        step = std::max(step, 0.001f);
+        glUniform1f(glGetUniformLocation(m_volumeShader, "uStep"), step);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_3D, m_volumeTex3D);
+        glUniform1i(glGetUniformLocation(m_volumeShader, "uVolume"), 0);
+
+        // Bind LUT on texture unit 1
+        if (m_lutTex1D != 0) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_1D, m_lutTex1D);
+            glUniform1i(glGetUniformLocation(m_volumeShader, "uLUT"), 1);
+        }
+
+        // Cull back faces so fragments come from the front faces into the volume
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+
+        glBindVertexArray(m_proxyCubeVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
+    glEnable(GL_DEPTH_TEST);
+
+        glDisable(GL_CULL_FACE);
+    }
+
+    // Draw bounding box lines on top (avoid being occluded by proxy cube depth)
+    if (m_showBoundingBox) {
+        glDisable(GL_DEPTH_TEST);
+        glUseProgram(m_shaderProgram);
+
+    // Set up transformation matrices
+    glm::mat4 model = glm::mat4(1.0f); // Identity matrix
+    glm::mat4 view = m_camera.getViewMatrix();
+    glm::mat4 projection = m_camera.getProjectionMatrix();
+
+    // Pass matrices to the shader
+    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(m_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+
+        // Draw the bounding box
+        glBindVertexArray(m_boundingBoxVAO);
+        glDrawArrays(GL_LINES, 0, 24);
+        glBindVertexArray(0);
+    }
+}
+
+
+void Renderer::setupBoundingBox() {
+    if (!isVolumeLoaded()) return;
+
+    float sx = (m_volumeData->spacing_x > 0.0 ? (float)m_volumeData->spacing_x : 1.0f);
+    float sy = (m_volumeData->spacing_y > 0.0 ? (float)m_volumeData->spacing_y : 1.0f);
+    float sz = (m_volumeData->spacing_z > 0.0 ? (float)m_volumeData->spacing_z : 1.0f);
+
+    float w = m_volumeData->width * sx;
+    float h = m_volumeData->height * sy;
+    float d = m_volumeData->depth * sz;
+
+    // Center the box at the origin
+    float x_min = -w / 2.0f; float x_max = w / 2.0f;
+    float y_min = -h / 2.0f; float y_max = h / 2.0f;
+    float z_min = -d / 2.0f; float z_max = d / 2.0f;
+
+    // Define the 12 lines of the cube
+    std::vector<float> vertices = {
+        x_min, y_min, z_min,  x_max, y_min, z_min,
+        x_max, y_min, z_min,  x_max, y_max, z_min,
+        x_max, y_max, z_min,  x_min, y_max, z_min,
+        x_min, y_max, z_min,  x_min, y_min, z_min,
+        x_min, y_min, z_max,  x_max, y_min, z_max,
+        x_max, y_min, z_max,  x_max, y_max, z_max,
+        x_max, y_max, z_max,  x_min, y_max, z_max,
+        x_min, y_max, z_max,  x_min, y_min, z_max,
+        x_min, y_min, z_min,  x_min, y_min, z_max,
+        x_max, y_min, z_min,  x_max, y_min, z_max,
+        x_max, y_max, z_min,  x_max, y_max, z_max,
+        x_min, y_max, z_min,  x_min, y_max, z_max
+    };
+
+    if (m_boundingBoxVAO == 0) glGenVertexArrays(1, &m_boundingBoxVAO);
+    if (m_boundingBoxVBO == 0) glGenBuffers(1, &m_boundingBoxVBO);
+
+    glBindVertexArray(m_boundingBoxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_boundingBoxVBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    // Frame the box with the camera so it's visible
+    m_camera.frameBox(w, h, d);
+
+    std::cout << "  [Renderer::setupBoundingBox] Box dimensions: " << w << "x" << h << "x" << d << std::endl;
+}
+
+void Renderer::setupVolumeTexture() {
+    if (!isVolumeLoaded()) return;
+
+    // Create 3D texture if needed
+    if (m_volumeTex3D == 0){
+        glGenTextures(1, &m_volumeTex3D);
+    }
+    glBindTexture(GL_TEXTURE_3D, m_volumeTex3D);
+
+    // Texture parameters
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    // Upload data (uint16). Use GL_R16 normalized format so sampler returns [0,1]
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage3D(
+        GL_TEXTURE_3D,
+        0,
+        GL_R16,
+        (GLsizei)m_volumeData->width,
+        (GLsizei)m_volumeData->height,
+        (GLsizei)m_volumeData->depth,
+        0,
+        GL_RED,
+        GL_UNSIGNED_SHORT,
+        m_volumeData->data.data()
+    );
+
+    // Set swizzle so sampling returns grayscale in all channels if needed
+    GLint swizzleMask[] = {GL_RED, GL_RED, GL_RED, GL_ONE};
+    glTexParameteriv(GL_TEXTURE_3D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+
+    glBindTexture(GL_TEXTURE_3D, 0);
+}
+
+void Renderer::setupProxyCube() {
+    // Create a unit cube centered at origin that will be scaled by box size via model (here model=identity, so we precompute in object-space actual positions)
+    float sx = (m_volumeData->spacing_x > 0.0 ? (float)m_volumeData->spacing_x : 1.0f);
+    float sy = (m_volumeData->spacing_y > 0.0 ? (float)m_volumeData->spacing_y : 1.0f);
+    float sz = (m_volumeData->spacing_z > 0.0 ? (float)m_volumeData->spacing_z : 1.0f);
+    float w = m_volumeData->width * sx;
+    float h = m_volumeData->height * sy;
+    float d = m_volumeData->depth * sz;
+    float x0 = -w*0.5f, x1 = w*0.5f;
+    float y0 = -h*0.5f, y1 = h*0.5f;
+    float z0 = -d*0.5f, z1 = d*0.5f;
+
+    // 12 triangles (36 verts) for cube faces
+    std::vector<float> verts = {
+        // +X
+        x1,y0,z0,  x1,y1,z0,  x1,y1,z1,
+        x1,y0,z0,  x1,y1,z1,  x1,y0,z1,
+        // -X
+        x0,y0,z0,  x0,y0,z1,  x0,y1,z1,
+        x0,y0,z0,  x0,y1,z1,  x0,y1,z0,
+        // +Y
+        x0,y1,z0,  x0,y1,z1,  x1,y1,z1,
+        x0,y1,z0,  x1,y1,z1,  x1,y1,z0,
+        // -Y
+        x0,y0,z0,  x1,y0,z0,  x1,y0,z1,
+        x0,y0,z0,  x1,y0,z1,  x0,y0,z1,
+        // +Z
+        x0,y0,z1,  x1,y0,z1,  x1,y1,z1,
+        x0,y0,z1,  x1,y1,z1,  x0,y1,z1,
+        // -Z
+        x0,y0,z0,  x0,y1,z0,  x1,y1,z0,
+        x0,y0,z0,  x1,y1,z0,  x1,y0,z0
+    };
+
+    if (m_proxyCubeVAO == 0) glGenVertexArrays(1, &m_proxyCubeVAO);
+    if (m_proxyCubeVBO == 0) glGenBuffers(1, &m_proxyCubeVBO);
+
+    glBindVertexArray(m_proxyCubeVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_proxyCubeVBO);
+    glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    // Compile volume shader
+    std::string volVSsrc = loadShaderFile("vol.vert");
+    std::string volFSsrc = loadShaderFile("vol.frag");
+    const char* vssc = volVSsrc.c_str();
+    const char* fssc = volFSsrc.c_str();
+
+    unsigned int vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &vssc, nullptr);
+    glCompileShader(vs);
+    unsigned int fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &fssc, nullptr);
+    glCompileShader(fs);
+    m_volumeShader = glCreateProgram();
+    glAttachShader(m_volumeShader, vs);
+    glAttachShader(m_volumeShader, fs);
+    glLinkProgram(m_volumeShader);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+}
+
+// --- Colormap LUT setup ---
+static void colorPreset(int preset, float t, float& r, float& g, float& b) {
+    // 10 simple presets approximating common colormaps
+    t = std::max(0.0f, std::min(1.0f, t));
+    switch (preset) {
+        case 0: { // Grayscale
+            r = g = b = t; break;
+        }
+        case 1: { // Inverted Grayscale
+            r = g = b = 1.0f - t; break;
+        }
+        case 2: { // Hot
+            float x = t;
+            r = std::min(1.0f, 3.0f * x);
+            g = std::min(1.0f, std::max(0.0f, 3.0f * x - 1.0f));
+            b = std::min(1.0f, std::max(0.0f, 3.0f * x - 2.0f));
+            break;
+        }
+        case 3: { // Cool
+            r = t; g = 1.0f - t; b = 1.0f; break;
+        }
+        case 4: { // Spring
+            r = 1.0f; g = t; b = 1.0f - t; break;
+        }
+        case 5: { // Summer
+            r = t; g = 0.5f + 0.5f*t; b = 0.4f; break;
+        }
+        case 6: { // Autumn
+            r = 1.0f; g = t; b = 0.0f; break;
+        }
+        case 7: { // Winter
+            r = 0.0f; g = t; b = 1.0f - t; break;
+        }
+        case 8: { // Jet-like
+            float r1 = std::min(1.0f, std::max(0.0f, 1.5f - std::abs(4.0f*t - 3.0f)));
+            float g1 = std::min(1.0f, std::max(0.0f, 1.5f - std::abs(4.0f*t - 2.0f)));
+            float b1 = std::min(1.0f, std::max(0.0f, 1.5f - std::abs(4.0f*t - 1.0f)));
+            r = r1; g = g1; b = b1; break;
+        }
+        default: { // Viridis-like simple approx
+            r = 0.267f + 0.633f*t; 
+            g = 0.004f + 0.996f*t; 
+            b = 0.329f + 0.671f*(1.0f - t);
+            r = std::min(1.0f, std::max(0.0f, r));
+            g = std::min(1.0f, std::max(0.0f, g));
+            b = std::min(1.0f, std::max(0.0f, b));
+            break;
+        }
+    }
+}
+
+void Renderer::setupColormapLUT() {
+    const int N = 256;
+    std::vector<unsigned char> data(N*4);
+    for (int i=0;i<N;++i){
+        float t = i / float(N-1);
+        float r,g,b; colorPreset(m_colormapPreset, t, r, g, b);
+        data[4*i+0] = (unsigned char)std::round(255.0f * r);
+        data[4*i+1] = (unsigned char)std::round(255.0f * g);
+        data[4*i+2] = (unsigned char)std::round(255.0f * b);
+        data[4*i+3] = 255;
+    }
+    if (m_lutTex1D == 0) glGenTextures(1, &m_lutTex1D);
+    glBindTexture(GL_TEXTURE_1D, m_lutTex1D);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA8, N, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
+    glBindTexture(GL_TEXTURE_1D, 0);
+}
+
+void Renderer::setShowBoundingBox(bool show) { m_showBoundingBox = show; }
+
+void Renderer::setColormapPreset(int presetIndex) {
+    m_colormapPreset = std::max(0, std::min(9, presetIndex));
+    // Mark for deferred rebuild next frame when context is current
+    m_needsGLSetup = true;
+}
+
+void Renderer::camera_rotate(float dx, float dy) {
+    m_camera.rotate(dx, dy);
+}
+
+void Renderer::camera_zoom(float delta) {
+    m_camera.zoom(delta);
 }
 
 bool Renderer::loadVolume(const std::string& path) {
@@ -47,6 +473,12 @@ bool Renderer::loadVolume(const std::string& path) {
         std::cout << "      MVR INFO: Volume loaded successfully." << std::endl;
     } else {
         std::cerr << "      MVR ERROR: Failed to load volume." << std::endl;
+    }
+
+    // IMPORTANT: Do NOT create GL objects here (no current GL context).
+    // Defer GL resource setup until render(), when the QOpenGLWidget context is current.
+    if (success) {
+        m_needsGLSetup = true;
     }
 
     return success;

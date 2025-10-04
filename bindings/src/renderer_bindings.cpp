@@ -23,8 +23,20 @@ void bind_renderer(py::module_& m) {
 
 
     py::class_<Renderer>(m, "Renderer")
+
              .def(py::init<>())
+
+             .def("get_volume_width", &Renderer::getVolumeWidth, "Returns the width of the loaded volume")
+             .def("get_volume_height", &Renderer::getVolumeHeight, "Returns the height of the loaded volume")
+             .def("get_volume_depth", &Renderer::getVolumeDepth, "Returns the depth of the loaded volume")
+
+             .def("get_volume_spacing_x", &Renderer::getVolumeSpacingX, "Returns the X spacing of the loaded volume")
+             .def("get_volume_spacing_y", &Renderer::getVolumeSpacingY, "Returns the Y spacing of the loaded volume")
+             .def("get_volume_spacing_z", &Renderer::getVolumeSpacingZ, "Returns the Z spacing of the loaded volume")
+
              .def("load_volume", &Renderer::loadVolume, "Loads a volume from a file path or directory")
+
+             .def("is_volume_loaded", &Renderer::isVolumeLoaded, "Returns true if a volume is loaded")
 
             // This exposes the C++ getVolume method, returning a pointer.
             // The 'reference_internal' policy is crucial: it tells Python that the
@@ -55,16 +67,16 @@ void bind_renderer(py::module_& m) {
                     );
 
             }, "Returns the volume data as a NumPy array (copies data)")
-
-
-              // Bind the new lightweight getters
-             .def("is_volume_loaded", &Renderer::isVolumeLoaded, "Returns true if a volume is loaded")
-             .def("get_volume_width", &Renderer::getVolumeWidth, "Returns the width of the loaded volume")
-             .def("get_volume_height", &Renderer::getVolumeHeight, "Returns the height of the loaded volume")
-             .def("get_volume_depth", &Renderer::getVolumeDepth, "Returns the depth of the loaded volume")
-             .def("get_volume_spacing_x", &Renderer::getVolumeSpacingX, "Returns the X spacing of the loaded volume")
-             .def("get_volume_spacing_y", &Renderer::getVolumeSpacingY, "Returns the Y spacing of the loaded volume")
-             .def("get_volume_spacing_z", &Renderer::getVolumeSpacingZ, "Returns the Z spacing of the loaded volume");
-
+            
+            
+            // --- Bind new OpenGL and Camera methods ---
+            .def("init", &Renderer::init, "Initialize OpenGL context")
+            .def("render", &Renderer::render, "Render the scene")
+            .def("resize", &Renderer::resize, "Resize the viewport")
+            .def("camera_rotate", &Renderer::camera_rotate, "Rotate the camera")
+            .def("camera_zoom", &Renderer::camera_zoom, "Zoom the camera")
+            // Controls
+            .def("set_show_bounding_box", &Renderer::setShowBoundingBox, py::arg("show"), "Show or hide the bounding box")
+            .def("set_colormap_preset", &Renderer::setColormapPreset, py::arg("preset_index"), "Set colormap preset (0..9)");
 
 }

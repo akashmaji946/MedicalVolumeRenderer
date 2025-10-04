@@ -1,15 +1,21 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.20)
 project(MedicalVolumeRenderer LANGUAGES CXX CUDA)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+enable_language(CUDA)
 set(CMAKE_CUDA_ARCHITECTURES native)
 set(CMAKE_CUDA_COMPILER /usr/local/cuda-13/bin/nvcc)
 find_package(CUDAToolkit REQUIRED)
+
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
 find_package(DCMTK REQUIRED)
 find_package(pybind11 REQUIRED)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGL)
 
 # --- NIFTI / znzlib / nsl ---
 find_library(NIFTI_LIB niftiio HINTS /usr/local/lib /usr/lib)
@@ -33,8 +39,8 @@ message(STATUS "ZNZ_LIB   = ${ZNZ_LIB}")
 message(STATUS "NSL_LIB   = ${NSL_LIB}")
 
 # --- Sources and headers ---
-file(GLOB_RECURSE BACKEND_SOURCES "src/*.cpp" "src/*.cu")
-file(GLOB_RECURSE BACKEND_HEADERS "include/*.h" "include/*.hpp")
+file(GLOB_RECURSE BACKEND_SOURCES "src/*.cpp" "src/*.cu" "glad/*.cpp")
+file(GLOB_RECURSE BACKEND_HEADERS "include/*.h" "include/*.hpp" "glad/*.hpp" "glad/*.h")
 
 # --- Core backend library ---
 add_library(backend_lib ${BACKEND_SOURCES} ${BACKEND_HEADERS})
@@ -57,6 +63,9 @@ target_link_libraries(backend_lib PRIVATE
         DCMTK::ofstd
         ${NSL_LIB} # optional
 )
+
+# Provide absolute path to shaders directory as a compile definition
+target_compile_definitions(backend_lib PRIVATE SHADERS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 
 # --- Optional standalone executable ---
 add_executable(backend_exec

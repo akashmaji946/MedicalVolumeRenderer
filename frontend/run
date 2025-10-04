@@ -6,11 +6,42 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
-# Activate virtual environment
-source ~/Downloads/MedicalVolumeRenderer/.mvr/bin/activate
+# Activate virtual environment and pin interpreter
+VENV_DIR=~/Downloads/MedicalVolumeRenderer/.mvr
+source "$VENV_DIR/bin/activate"
+PY="$VENV_DIR/bin/python"
+PIP="$VENV_DIR/bin/pip"
 
 # Set PYTHONPATH to include the build folder
 export PYTHONPATH=$PYTHONPATH:/home/akashmaji/Downloads/MedicalVolumeRenderer/build
 
-# Run the Python script
-python3 "$1"
+# # Prefer XCB platform to avoid Wayland-related issues with some OpenGL setups
+# export QT_QPA_PLATFORM=${QT_QPA_PLATFORM:-xcb}
+
+# # Ensure Qt does not pick up conflicting plugins from other distributions (e.g., Anaconda)
+# unset QT_PLUGIN_PATH
+# unset QT_QPA_PLATFORM_PLUGIN_PATH
+
+# # By default, do NOT force software rendering. If you want a software fallback, set MVR_SOFTWARE=1.
+# if [ "${MVR_SOFTWARE}" = "1" ]; then
+#     echo "[run] Enabling software OpenGL fallback (MVR_SOFTWARE=1)."
+#     export QT_OPENGL=${QT_OPENGL:-software}
+#     export LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-1}
+#     export MESA_LOADER_DRIVER_OVERRIDE=${MESA_LOADER_DRIVER_OVERRIDE:-llvmpipe}
+# else
+#     # Clear any software-forcing env vars if they are set in the parent env
+#     unset LIBGL_ALWAYS_SOFTWARE
+#     unset MESA_LOADER_DRIVER_OVERRIDE
+#     # QT_OPENGL is deprecated in Qt6 but harmless if present; prefer desktop if explicitly set
+#     export QT_OPENGL=${QT_OPENGL:-desktop}
+# fi
+
+# # If there is no DISPLAY (headless), but xvfb-run is available, run with a virtual framebuffer
+# if [ -z "$DISPLAY" ] && command -v xvfb-run >/dev/null 2>&1; then
+#     xvfb-run -s "-screen 0 1280x720x24" "$PY" "$1"
+#     exit $?
+# fi
+
+# # Run the Python script
+
+QT_XCB_GL_INTEGRATION=xcb_glx "$PY" "$1"

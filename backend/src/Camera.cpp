@@ -59,3 +59,36 @@ glm::mat4 Camera::getProjectionMatrix() const {
     // Creates a perspective projection matrix
     return glm::perspective(glm::radians(m_fov), m_aspectRatio, m_nearPlane, m_farPlane);
 }
+
+void Camera::frameBox(float w, float h, float d) {
+    // Ensure positive sizes
+    w = std::max(w, 1e-3f);
+    h = std::max(h, 1e-3f);
+    d = std::max(d, 1e-3f);
+
+    // Frame the box centered at origin. Choose a gentle default angle
+    m_azimuth = 45.0f;
+    m_elevation = 20.0f;
+
+    // Compute radius so the largest dimension fits within the vertical FOV
+    float boxRadius = 0.5f * std::sqrt(w*w + h*h + d*d);
+    float fovRad = glm::radians(m_fov);
+    // distance to fit the sphere of radius boxRadius inside view cone
+    float dist = boxRadius / std::sin(fovRad * 0.5f);
+    // Keep some margin
+    m_radius = dist * 1.2f;
+
+    // Adjust clipping planes so the box is not clipped
+    // Place near a bit in front of the camera target distance, far beyond the box
+    float nearTarget = std::max(0.01f, m_radius - 2.0f * boxRadius);
+    float farTarget  = std::max(nearTarget + 1.0f, m_radius + 2.0f * boxRadius);
+    m_nearPlane = nearTarget;
+    m_farPlane  = farTarget;
+
+    // Focus the camera at the center
+    m_target = glm::vec3(0.0f, 0.0f, 0.0f);
+    m_up = glm::vec3(0.0f, 1.0f, 0.0f);
+
+    // Update position
+    updateCameraVectors();
+}

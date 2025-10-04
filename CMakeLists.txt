@@ -15,16 +15,19 @@
 
 
 # MedicalVolumeRenderer/CMakeLists.txt
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.20)
 project(MedicalVolumeRenderer LANGUAGES CXX CUDA)
+
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # CUDA settings (use defaults unless overridden)
 enable_language(CUDA)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Detect CUDA (compiler + toolkit)
+set(CMAKE_CUDA_ARCHITECTURES native)
+set(CMAKE_CUDA_COMPILER /usr/local/cuda-13/bin/nvcc)
 find_package(CUDAToolkit REQUIRED)
+
 
 # Find Python and PyBind11 (use global installation if available)
 # sudo apt-get install python3 pybind11-dev

@@ -7,8 +7,10 @@
 #include "Camera.h"
 #include <string>
 #include <memory>
+#include "../glad/glad.hpp"
 
 class Renderer {
+    
 public:
     Renderer();
 
@@ -36,6 +38,13 @@ public:
 
 
     void setupBoundingBox();
+    void setupVolumeTexture();
+    void setupProxyCube();
+    void setupColormapLUT();
+
+    // Controls
+    void setShowBoundingBox(bool show);
+    void setColormapPreset(int presetIndex);
 
 private:
     std::unique_ptr<VolumeData> m_volumeData;
@@ -45,6 +54,19 @@ private:
     unsigned int m_boundingBoxVBO = 0;
     unsigned int m_boundingBoxVAO = 0;
     unsigned int m_shaderProgram = 0;
+
+    // Volume rendering resources
+    unsigned int m_volumeTex3D = 0;
+    unsigned int m_proxyCubeVAO = 0;
+    unsigned int m_proxyCubeVBO = 0;
+    unsigned int m_volumeShader = 0;
+    unsigned int m_lutTex1D = 0;
+
+    // Defer GL setup until a valid GL context is current (e.g., inside paintGL/render)
+    bool m_needsGLSetup = false;
+
+    bool m_showBoundingBox = true;
+    int  m_colormapPreset = 0; // 0..9
 };
 
 #endif // RENDERER_H
