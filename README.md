@@ -9,7 +9,7 @@ MVR - Medical Volume Renderer
 ____________________________
 ```
 
-# Medical Volume Renderer (v0)
+# Medical Volume Renderer (MVR)
 
 A lightweight OpenGL-based 3D volume renderer with a simple PyQt6 UI. Supports loading NIfTI (.nii, .nii.gz) and DICOM (.dcm) files and basic camera controls, colormap presets, and a slicer mode.
 
@@ -19,7 +19,9 @@ The release binary(standalone) and library(.so) is available in the `releases` d
 
 - renderer0: First release binary. Supports loading NIfTI files.
 - renderer1: Second release binary. Supports loading DICOM files also.
-- renderer-x86_64: Latest release binary. Supports loading NIfTI and DICOM files.
+- renderer2: Third release binary. Supports loading VTK files also.
+- renderer3: Fourth release binary. Supports custom TF.
+- renderer-x86_64: Latest release binary. Supports all above.
 
 
 You can use the `volumerenderer` library (`volumerenderer.cpython-313-x86_64-linux-gnu`) and put it in some standard path like: `/usr/include/..` to avoid building the backend.
