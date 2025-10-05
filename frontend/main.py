@@ -3,7 +3,9 @@ import os
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QFileDialog, QCheckBox,
                              QComboBox, QLabel, QSizePolicy, QSpacerItem, QColorDialog,
-                             QSlider, QSpinBox, QInputDialog)
+                             QSlider, QSpinBox, QInputDialog, QTableWidget, QTableWidgetItem,
+                             QDoubleSpinBox, QGraphicsView, QGraphicsScene, QGraphicsEllipseItem,
+                             QHeaderView)
 from PyQt6.QtGui import QSurfaceFormat, QShortcut
 from PyQt6.QtCore import Qt, QTimer
 import json
@@ -96,45 +98,37 @@ class MainWindow(QMainWindow):
         # Load persisted history
         self.load_history()
 
-        # Background color selector
-        bg_row = QHBoxLayout()
+        # Background color controls (will be shown on the same row as Fullscreen)
         self.bg_label = QLabel("Background Color")
-        bg_row.addWidget(self.bg_label)
         self.bg_pick_btn = QPushButton("Pick Color")
         self.bg_pick_btn.clicked.connect(self.pick_background_color)
-        bg_row.addWidget(self.bg_pick_btn)
-        controls_layout.addLayout(bg_row)
 
-        # Window controls
+        # Window controls (Fullscreen + Background color on the same row)
         win_controls_row = QHBoxLayout()
-        self.min_btn = QPushButton("Minimize")
-        self.min_btn.clicked.connect(self.showMinimized)
-        win_controls_row.addWidget(self.min_btn)
-
-        self.max_btn = QPushButton("Maximize/Restore")
-        self.max_btn.clicked.connect(self.toggle_maximize)
-        win_controls_row.addWidget(self.max_btn)
-
         self.full_btn = QPushButton("Fullscreen")
         self.full_btn.clicked.connect(self.toggle_fullscreen)
         win_controls_row.addWidget(self.full_btn)
-
+        # Spacer
+        win_controls_row.addStretch(1)
+        # Background color label + button
+        win_controls_row.addWidget(self.bg_label)
+        win_controls_row.addWidget(self.bg_pick_btn)
         controls_layout.addLayout(win_controls_row)
 
-        # Bounding box toggle
+        # Toggles row: Bounding box + Overlay on the same row
+        toggles_row = QHBoxLayout()
         self.bbox_checkbox = QCheckBox("Show Bounding Box")
         self.bbox_checkbox.setChecked(True)
         self.bbox_checkbox.stateChanged.connect(self.on_bbox_toggled)
-        controls_layout.addWidget(self.bbox_checkbox)
-
-        # Overlay (FPS/filename) toggle
+        toggles_row.addWidget(self.bbox_checkbox)
         self.overlay_checkbox = QCheckBox("Show Overlay (FPS & Name)")
         self.overlay_checkbox.setChecked(True)
         self.overlay_checkbox.stateChanged.connect(lambda s: self.gl_widget.set_overlay_visible(bool(s)))
-        controls_layout.addWidget(self.overlay_checkbox)
+        toggles_row.addWidget(self.overlay_checkbox)
+        toggles_row.addStretch(1)
+        controls_layout.addLayout(toggles_row)
 
-        # Colormap selector
-        controls_layout.addWidget(QLabel("Pick Colormap"))
+        # Colormap selector (label removed per request)
         self.cmap_combo = QComboBox()
         self.cmap_presets = [
             "Grayscale",            # 0
@@ -259,10 +253,18 @@ class MainWindow(QMainWindow):
         self.tf_panel_layout.addLayout(preset_row)
 
         # Custom TF table
-        from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
         self.tf_table = QTableWidget(0, 5)
         self.tf_table.setHorizontalHeaderLabels(["Pos", "R", "G", "B", "A"])
+        # Fit columns to available width
+        header = self.tf_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tf_table.horizontalHeader().setStretchLastSection(True)
+        # Hide vertical header to save space
+        self.tf_table.verticalHeader().setVisible(False)
+        # Disable scrollbars and let us control height
+        self.tf_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tf_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tf_table.setShowGrid(False)
         self.tf_panel_layout.addWidget(self.tf_table)
 
         # Buttons for TF editing
@@ -286,6 +288,8 @@ class MainWindow(QMainWindow):
 
         # Seed with a small useful default TF
         self.tf_seed_default()
+        # Ensure table height matches its content
+        self._resize_tf_table_to_contents()
 
 
         # Spacer to push items up
@@ -460,6 +464,7 @@ class MainWindow(QMainWindow):
         self.tf_table.setRowCount(0)
         for p in defaults:
             self.tf_add_point(values=p)
+        self._resize_tf_table_to_contents()
 
     def tf_add_point(self, values=None):
         # QPushButton.clicked(bool) may pass a boolean; treat it as no values provided
@@ -476,12 +481,17 @@ class MainWindow(QMainWindow):
             spin.setRange(0.0, 1.0)
             spin.setSingleStep(0.01)
             spin.setValue(float(val))
+            # Compact spin boxes to avoid horizontal overflow
+            spin.setMinimumWidth(50)
+            spin.setMaximumWidth(80)
             self.tf_table.setCellWidget(row, c, spin)
+        self._resize_tf_table_to_contents()
 
     def tf_remove_selected(self):
         rows = sorted({idx.row() for idx in self.tf_table.selectedIndexes()}, reverse=True)
         for r in rows:
             self.tf_table.removeRow(r)
+        self._resize_tf_table_to_contents()
 
     def _collect_tf_points(self):
         pts = []
@@ -500,6 +510,23 @@ class MainWindow(QMainWindow):
         # Sort by position
         pts.sort(key=lambda t: t[0])
         return pts
+
+    def _resize_tf_table_to_contents(self):
+        # Compute a fixed height that fits the current rows + header, no scroll
+        try:
+            # Resize rows to their contents (spin boxes)
+            self.tf_table.resizeRowsToContents()
+            header_h = self.tf_table.horizontalHeader().height()
+            total_rows_h = 0
+            for r in range(self.tf_table.rowCount()):
+                total_rows_h += self.tf_table.rowHeight(r)
+            # Add frame and a small margin to avoid clipping under the buttons
+            frame = self.tf_table.frameWidth() * 2
+            margin = 8
+            total = header_h + total_rows_h + frame + margin
+            self.tf_table.setFixedHeight(total)
+        except Exception:
+            pass
 
     def tf_apply_custom(self):
         pts = self._collect_tf_points()
