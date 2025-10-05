@@ -67,6 +67,31 @@ class OpenGLWidget(QOpenGLWidget):
         self._alert_timer.setSingleShot(True)
         self._alert_timer.timeout.connect(lambda: self.alert_label.setVisible(False))
 
+    def set_renderer(self, renderer):
+        """Swap the active renderer (e.g., to a VTKRenderer) and initialize it.
+        This ensures the new renderer is initialized in the current GL context and
+        resized to this widget's dimensions.
+        """
+        # Ensure our GL context is current while changing renderers
+        try:
+            self.makeCurrent()
+        except Exception:
+            pass
+        self.renderer = renderer
+        try:
+            # Initialize and resize the new renderer to current size
+            self.renderer.init()
+            self.renderer.resize(self.width(), self.height())
+        except Exception:
+            pass
+        finally:
+            try:
+                self.doneCurrent()
+            except Exception:
+                pass
+        # Trigger a repaint to show the new renderer content
+        self.update()
+
     def initializeGL(self):
         """Called once to initialize OpenGL."""
         self.renderer.init()

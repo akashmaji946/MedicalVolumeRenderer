@@ -16,4 +16,5 @@ pyinstaller --noconfirm --onefile --windowed \
 
 cp dist/renderer ../renderer-x86_64
 cp dist/renderer ../releases/renderer-x86_64
+cp *.so ../releases/
 cd ..

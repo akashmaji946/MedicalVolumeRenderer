@@ -41,7 +41,11 @@ class MainWindow(QMainWindow):
         # Start with a reasonable size; user can maximize/minimize
         self.resize(1600, 900)
 
-        self.renderer = volumerenderer.Renderer()
+        # Keep separate instances for default and VTK renderers; switch as needed
+        self.renderer_default = volumerenderer.Renderer()
+        self.renderer = self.renderer_default
+        self.vtk_renderer = None
+        self.is_vtk_mode = False
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -62,6 +66,20 @@ class MainWindow(QMainWindow):
         self.load_button = QPushButton("Load NIfTI/DICOM File")
         self.load_button.clicked.connect(self.load_file)
         controls_layout.addWidget(self.load_button)
+
+        # Quick VTK load button directly below
+        self.vtk_quick_load_btn = QPushButton("Load VTK File")
+        self.vtk_quick_load_btn.setToolTip("Load a .vtk structured points/grid volume")
+        self.vtk_quick_load_btn.clicked.connect(self.load_vtk_file)
+        controls_layout.addWidget(self.vtk_quick_load_btn)
+
+        # VTK Field selector (top, visible always)
+        vtk_field_row_top = QHBoxLayout()
+        vtk_field_row_top.addWidget(QLabel("Field"))
+        self.vtk_field_combo = QComboBox()
+        self.vtk_field_combo.currentIndexChanged.connect(self.on_vtk_field_changed)
+        vtk_field_row_top.addWidget(self.vtk_field_combo)
+        controls_layout.addLayout(vtk_field_row_top)
 
         # History (last 10 files) — placed right under Load
         hist_row = QHBoxLayout()
@@ -106,7 +124,7 @@ class MainWindow(QMainWindow):
         # Bounding box toggle
         self.bbox_checkbox = QCheckBox("Show Bounding Box")
         self.bbox_checkbox.setChecked(True)
-        self.bbox_checkbox.stateChanged.connect(lambda s: self.renderer.set_show_bounding_box(bool(s)))
+        self.bbox_checkbox.stateChanged.connect(self.on_bbox_toggled)
         controls_layout.addWidget(self.bbox_checkbox)
 
         # Overlay (FPS/filename) toggle
@@ -131,7 +149,7 @@ class MainWindow(QMainWindow):
             "Viridis-like"          # 9
         ]
         self.cmap_combo.addItems(self.cmap_presets)
-        self.cmap_combo.currentIndexChanged.connect(lambda idx: self.renderer.set_colormap_preset(int(idx)))
+        self.cmap_combo.currentIndexChanged.connect(self.on_cmap_changed)
         controls_layout.addWidget(self.cmap_combo)
 
         # Bounding box scale slider (0.1x .. 5.0x)
@@ -213,6 +231,9 @@ class MainWindow(QMainWindow):
         self.slicer_timer = QTimer(self)
         self.slicer_timer.timeout.connect(self.step_slicer)
 
+        # Delayed notification timer helper usage happens via _notify_loaded
+
+
         # Spacer to push items up
         controls_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
@@ -267,6 +288,176 @@ class MainWindow(QMainWindow):
         QShortcut(Qt.Key.Key_F11, self, activated=self.toggle_fullscreen)
         QShortcut(Qt.Key.Key_Escape, self, activated=self.exit_fullscreen)
 
+    # --- Renderer switching helpers ---
+    def switch_to_renderer(self, renderer, vtk_mode: bool):
+        # Swap our active renderer and update the GL widget
+        self.renderer = renderer
+        try:
+            self.gl_widget.set_renderer(renderer)
+        except Exception:
+            pass
+        # Update mode flag and controls
+        self.is_vtk_mode = vtk_mode
+        self.update_controls_for_mode()
+        # Re-apply some common settings if supported
+        try:
+            if hasattr(self.renderer, 'resize'):
+                self.renderer.resize(self.gl_widget.width(), self.gl_widget.height())
+            # Apply current bbox visibility and colormap to the new renderer if supported
+            if hasattr(self.renderer, 'set_show_bounding_box'):
+                self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
+            if hasattr(self.renderer, 'set_colormap_preset'):
+                self.renderer.set_colormap_preset(int(self.cmap_combo.currentIndex()))
+            if hasattr(self.renderer, 'set_bounding_box_scale'):
+                self.renderer.set_bounding_box_scale(self.bbox_slider.value() / 100.0)
+        except Exception:
+            pass
+
+    # --- Notification helpers ---
+    def _safe_alert(self, message: str, duration_ms: int):
+        try:
+            self.gl_widget.show_alert(message, duration_ms)
+        except Exception:
+            pass
+
+    def _notify_loaded(self, path: str):
+        name = os.path.basename(path) if path else ""
+        # fire after 1s, visible for 3s
+        try:
+            QTimer.singleShot(1000, lambda: self._safe_alert(f"File: {name} loaded", 3000))
+        except Exception:
+            # Fallback: show immediately if timer fails
+            self._safe_alert(f"File: {name} loaded", 3000)
+
+    def update_controls_for_mode(self):
+        # Keep all primary controls enabled in both modes as requested
+        self.bbox_checkbox.setEnabled(True)
+        self.cmap_combo.setEnabled(True)
+        self.bbox_slider.setEnabled(True)
+        # Slicer stays enabled in both modes
+        # Background color is handled safely in code even if not supported by VTK
+
+    # --- Event/handler refactors to be renderer-agnostic ---
+    def on_bbox_toggled(self, state: int):
+        try:
+            if hasattr(self.renderer, 'set_show_bounding_box'):
+                self.renderer.set_show_bounding_box(bool(state))
+        except Exception:
+            pass
+
+    def on_cmap_changed(self, idx: int):
+        try:
+            if hasattr(self.renderer, 'set_colormap_preset'):
+                self.renderer.set_colormap_preset(int(idx))
+        except Exception:
+            pass
+
+    # --- VTK helpers ---
+    def toggle_vtk_panel(self, checked: bool):
+        self.vtk_panel.setVisible(checked)
+        self.vtk_toggle_btn.setText("VTK Data ▾" if checked else "VTK Data ▸")
+
+    def refresh_vtk_fields(self):
+        self.vtk_field_combo.blockSignals(True)
+        self.vtk_field_combo.clear()
+        try:
+            if self.vtk_renderer and hasattr(self.vtk_renderer, 'get_num_fields'):
+                n = int(self.vtk_renderer.get_num_fields())
+                names = []
+                for i in range(n):
+                    try:
+                        nm = self.vtk_renderer.get_vtk_volume().field_name(i) if hasattr(self.vtk_renderer, 'get_vtk_volume') else f"Field {i}"
+                    except Exception:
+                        nm = f"Field {i}"
+                    names.append(nm if nm else f"Field {i}")
+                if names:
+                    self.vtk_field_combo.addItems(names)
+        except Exception:
+            pass
+        self.vtk_field_combo.blockSignals(False)
+
+    def on_vtk_field_changed(self, idx: int):
+        try:
+            if self.vtk_renderer and hasattr(self.vtk_renderer, 'set_current_field_index'):
+                self.vtk_renderer.set_current_field_index(int(idx))
+                self.gl_widget.update()
+        except Exception:
+            pass
+
+    def load_vtk_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open VTK File",
+            "",
+            "VTK Files (*.vtk);;All Files (*)",
+        )
+        if not path:
+            return
+        # Show loading status
+        try:
+            self.gl_widget.show_alert("Loading VTK...", 10000)
+        except Exception:
+            pass
+        if self.vtk_renderer is None:
+            try:
+                self.vtk_renderer = volumerenderer.VTKRenderer()
+            except Exception as e:
+                try:
+                    self.gl_widget.show_alert(f"Cannot create VTK renderer: {e}", 5000)
+                except Exception:
+                    pass
+                return
+        ok = False
+        try:
+            ok = bool(self.vtk_renderer.load_vtk(path))
+        except Exception as e:
+            ok = False
+        if ok:
+            # Switch to VTK mode
+            self.switch_to_renderer(self.vtk_renderer, vtk_mode=True)
+            # Apply current colormap preset to VTK
+            try:
+                if hasattr(self.vtk_renderer, 'set_colormap_preset'):
+                    self.vtk_renderer.set_colormap_preset(int(self.cmap_combo.currentIndex()))
+            except Exception:
+                pass
+            # Apply bbox state and frame camera to box so it's centered and sized
+            try:
+                if hasattr(self.vtk_renderer, 'set_show_bounding_box'):
+                    self.vtk_renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
+                if hasattr(self.vtk_renderer, 'frame_camera_to_box'):
+                    self.vtk_renderer.frame_camera_to_box()
+                if hasattr(self.vtk_renderer, 'set_bounding_box_scale'):
+                    self.vtk_renderer.set_bounding_box_scale(self.bbox_slider.value() / 100.0)
+            except Exception:
+                pass
+            try:
+                name = os.path.basename(path)
+                self.gl_widget.set_dataset_name(name)
+                self.gl_widget.set_dataset_path(path)
+            except Exception:
+                pass
+            # Initialize slicer limits
+            self.init_slicer_limits()
+            # Populate field names
+            self.refresh_vtk_fields()
+            # Update view
+            self.gl_widget.update()
+            # Replace loading alert with success
+            try:
+                self.gl_widget.show_alert("VTK loaded", 1500)
+            except Exception:
+                pass
+            # Add to history (unique, max 10)
+            self.push_history(path)
+            # Delayed popup: after 1s, for 3s
+            self._notify_loaded(path)
+        else:
+            try:
+                self.gl_widget.show_alert("VTK loading failed", 5000)
+            except Exception:
+                pass
+
     def load_file(self):
         # Ask the user whether to load a NIfTI file or a DICOM folder
         choice, ok = QInputDialog.getItem(
@@ -299,6 +490,9 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
+        # Ensure we are in default renderer mode before loading volume
+        if self.is_vtk_mode:
+            self.switch_to_renderer(self.renderer_default, vtk_mode=False)
         print(f"Python: Loading {path}")
         if self.renderer.load_volume(path):
             print("Python: Load successful.")
@@ -312,13 +506,20 @@ class MainWindow(QMainWindow):
             # Add to history (unique, max 10)
             self.push_history(path)
             # Ensure current UI state is applied post-load
-            self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
-            self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
+            try:
+                if hasattr(self.renderer, 'set_show_bounding_box'):
+                    self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
+                if hasattr(self.renderer, 'set_colormap_preset'):
+                    self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
+            except Exception:
+                pass
             # Apply current bbox scale
             self.on_bbox_scale_changed(self.bbox_slider.value())
             # Initialize slicer limits using volume dims
             self.init_slicer_limits()
             self.gl_widget.update()  # Trigger repaint to show bounding box
+            # Delayed popup: after 1s, for 3s
+            self._notify_loaded(path)
         else:
             print("Python: Load failed.")
             # Show alert banner
@@ -329,7 +530,12 @@ class MainWindow(QMainWindow):
 
     def on_bbox_scale_changed(self, slider_value: int):
         scale = max(0.1, min(5.0, slider_value / 100.0))
-        self.renderer.set_bounding_box_scale(scale)
+        # Only supported in default renderer
+        try:
+            if hasattr(self.renderer, 'set_bounding_box_scale'):
+                self.renderer.set_bounding_box_scale(scale)
+        except Exception:
+            pass
         self.bbox_label.setText(f"Bounding Box Scale: {scale:.2f}x")
         self.gl_widget.update()
 
@@ -359,15 +565,20 @@ class MainWindow(QMainWindow):
         self.slicer_auto.setChecked(default_slicer_auto)
         self.slicer_speed.setValue(default_slicer_speed)
 
-        # Apply to renderer explicitly for background color
+        # Apply to renderer explicitly for background color (if supported)
         r, g, b = default_bg
-        self.renderer.set_background_color(r, g, b)
+        try:
+            if hasattr(self.renderer, 'set_background_color'):
+                self.renderer.set_background_color(r, g, b)
+        except Exception:
+            pass
 
         # Ensure dependent updates
         self.on_bbox_scale_changed(default_bbox_scale)
-        # Reset camera to frame the (unscaled) volume bounding box
+        # Reset camera to frame the (unscaled) volume bounding box if supported
         try:
-            self.renderer.frame_camera_to_box()
+            if hasattr(self.renderer, 'frame_camera_to_box'):
+                self.renderer.frame_camera_to_box()
         except Exception:
             pass
         self.gl_widget.set_overlay_visible(default_show_overlay)
@@ -396,26 +607,89 @@ class MainWindow(QMainWindow):
         if not path:
             return
         print(f"Python: Loading {path} from history")
-        if self.renderer.load_volume(path):
-            print("Python: Load successful.")
+        ext = os.path.splitext(path)[1].lower()
+        is_vtk = (ext == '.vtk')
+
+        if is_vtk:
+            # Ensure VTK renderer exists
+            if self.vtk_renderer is None:
+                try:
+                    self.vtk_renderer = volumerenderer.VTKRenderer()
+                except Exception as e:
+                    try:
+                        self.gl_widget.show_alert(f"Cannot create VTK renderer: {e}", 5000)
+                    except Exception:
+                        pass
+                    return
+            # Load VTK
+            ok = False
             try:
-                name = os.path.basename(path)
-                self.gl_widget.set_dataset_name(name)
-                self.gl_widget.set_dataset_path(path)
+                ok = bool(self.vtk_renderer.load_vtk(path))
             except Exception:
-                self.gl_widget.set_dataset_name("")
-            # Re-apply current UI state
-            self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
-            self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
-            self.on_bbox_scale_changed(self.bbox_slider.value())
-            self.init_slicer_limits()
-            self.gl_widget.update()
+                ok = False
+            if ok:
+                # Switch to VTK mode and apply current UI settings
+                self.switch_to_renderer(self.vtk_renderer, vtk_mode=True)
+                try:
+                    if hasattr(self.vtk_renderer, 'set_show_bounding_box'):
+                        self.vtk_renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
+                    if hasattr(self.vtk_renderer, 'set_colormap_preset'):
+                        self.vtk_renderer.set_colormap_preset(int(self.cmap_combo.currentIndex()))
+                    if hasattr(self.vtk_renderer, 'set_bounding_box_scale'):
+                        self.vtk_renderer.set_bounding_box_scale(self.bbox_slider.value() / 100.0)
+                    if hasattr(self.vtk_renderer, 'frame_camera_to_box'):
+                        self.vtk_renderer.frame_camera_to_box()
+                except Exception:
+                    pass
+                try:
+                    name = os.path.basename(path)
+                    self.gl_widget.set_dataset_name(name)
+                    self.gl_widget.set_dataset_path(path)
+                except Exception:
+                    pass
+                self.refresh_vtk_fields()
+                self.init_slicer_limits()
+                self.gl_widget.update()
+                # Delayed popup
+                self._notify_loaded(path)
+            else:
+                print("Python: VTK load failed.")
+                try:
+                    self.gl_widget.show_alert("VTK loading failed", 5000)
+                except Exception:
+                    pass
         else:
-            print("Python: Load failed.")
-            try:
-                self.gl_widget.show_alert("Data loading failed", 5000)
-            except Exception:
-                pass
+            # Treat as NIfTI (.nii/.nii.gz) or DICOM folder
+            # Ensure default renderer is active (supports load_volume)
+            if self.is_vtk_mode or not hasattr(self.renderer, 'load_volume'):
+                self.switch_to_renderer(self.renderer_default, vtk_mode=False)
+            if self.renderer.load_volume(path):
+                print("Python: Load successful.")
+                try:
+                    name = os.path.basename(path)
+                    self.gl_widget.set_dataset_name(name)
+                    self.gl_widget.set_dataset_path(path)
+                except Exception:
+                    self.gl_widget.set_dataset_name("")
+                # Re-apply current UI state
+                try:
+                    if hasattr(self.renderer, 'set_show_bounding_box'):
+                        self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
+                    if hasattr(self.renderer, 'set_colormap_preset'):
+                        self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
+                except Exception:
+                    pass
+                self.on_bbox_scale_changed(self.bbox_slider.value())
+                self.init_slicer_limits()
+                self.gl_widget.update()
+                # Delayed popup
+                self._notify_loaded(path)
+            else:
+                print("Python: Load failed.")
+                try:
+                    self.gl_widget.show_alert("Data loading failed", 5000)
+                except Exception:
+                    pass
 
     # --- Persistence for history (.mvr/history.json) ---
     def _history_dir(self) -> str:
@@ -631,15 +905,18 @@ class MainWindow(QMainWindow):
     def pick_background_color(self):
         # Get the current window background color as starting point (fallback to dark blue)
         initial = QColorDialog.getColor()
+
         if initial.isValid():
             r = initial.redF()
             g = initial.greenF()
             b = initial.blueF()
-            # Apply to renderer
-            self.renderer.set_background_color(r, g, b)
+            try:
+                if hasattr(self.renderer, 'set_background_color'):
+                    self.renderer.set_background_color(r, g, b)
+            except Exception:
+                pass
             self.gl_widget.update()
 
-    # --- Window control helpers ---
     def toggle_fullscreen(self):
         if self.isFullScreen():
             self.showNormal()
