@@ -16,6 +16,28 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Medical Volume Renderer- v0")
+
+        ## print ascii logo
+        # ____________________________
+        # __  __  __      __  _____  
+        # |  \/  | \ \    / / |  __ \ 
+        # | |\/| |  \ \  / /  | |__) |
+        # | |  | |   \ \/ /   |  _  / 
+        # |_|  |_|    \__/    |_| \_\ 
+        # MVR - Medical Volume Renderer
+        # ____________________________
+
+        print(r"""
+            ____________________________
+            __  __  __      __  _____  
+            |  \/  | \ \    / / |  __ \ 
+            | |\/| |  \ \  / /  | |__) |
+            | |  | |   \ \/ /   |  _  / 
+            |_|  |_|    \__/    |_| \_\ 
+            MVR - Medical Volume Renderer
+            ____________________________
+            """)
+
         # Start with a reasonable size; user can maximize/minimize
         self.resize(1600, 900)
 

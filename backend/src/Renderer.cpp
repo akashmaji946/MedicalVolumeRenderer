@@ -59,11 +59,24 @@ void Renderer::init() {
         return;
     }
 
+    #include <iostream>
+
+    // std::cout << R"(
+    // ____________________________
+    // __  __  __      __  _____  
+    // |  \/  | \ \    / / |  __ \ 
+    // | |\/| |  \ \  / /  | |__) |
+    // | |  | |   \ \/ /   |  _  / 
+    // |_|  |_|    \__/    |_| \_\ 
+    // MVR - Medical Volume Renderer
+    // ____________________________
+    // )" << std::endl;
+
     std::cout << "  [Renderer::init ] OpenGL version: " << glGetString(GL_VERSION) << std::endl;
     std::cout << "  [Renderer::init ] GLSL version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
     std::cout << "  [Renderer::init ] Vendor: " << glGetString(GL_VENDOR) << std::endl;
     std::cout << "  [Renderer::init ] Renderer: " << glGetString(GL_RENDERER) << std::endl;
-
+    std::cout << std::endl;
     // --- Compile Shaders --- (bounding box)
     std::string bboxVSsrc = loadShaderFile("bbox.vert");
     std::string bboxFSsrc = loadShaderFile("bbox.frag");
