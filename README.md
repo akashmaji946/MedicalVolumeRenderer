@@ -2,6 +2,17 @@
 
 A lightweight OpenGL-based 3D volume renderer with a simple PyQt6 UI. Supports loading NIfTI (.nii, .nii.gz) and basic camera controls, colormap presets, and a slicer mode.
 
+## Releases
+
+The release binary(standalone) and library(.so) is available in the `releases` directory. It is a Linux binary that can be run on any Linux system.
+
+- renderer0: The first release binary. Supports loading NIfTI files.
+- renderer1 The second release binary. Supports loading NIfTI files and DICOM files.
+- renderer-x86_64: latest release support all above
+
+
+You can use the `volumerenderer` library (`volumerenderer.cpython-313-x86_64-linux-gnu`) and put it in some standard path like: `/usr/include/..` to avoid building the backend.
+
 ## Quick Start (Linux)
 
 1. Build the native backend and Python bindings:
@@ -80,7 +91,7 @@ sudo apt install -y \
   mesa-utils
 ```
 
-2) Build and install NIfTI C library (required by the backend)
+2) OPTIONAL: Build and install NIfTI C library (required by the backend)
 
 ```bash
 cd ~/Downloads
@@ -92,6 +103,8 @@ make -j"$(nproc)"
 sudo make install
 sudo ldconfig
 ```
+
+Alternately you can use the `volumerenderer` library (`volumerenderer.cpython-313-x86_64-linux-gnu`) and put it in some standard path like: `/usr/include/..` so that you dont have to build any external library.
 
 3) Python environment and dependencies
 

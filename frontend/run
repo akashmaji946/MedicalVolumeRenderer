@@ -6,6 +6,9 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
+# remove all .so files
+rm *.so
+
 # Activate virtual environment and pin interpreter
 VENV_DIR=~/Downloads/MedicalVolumeRenderer/.mvr
 source "$VENV_DIR/bin/activate"

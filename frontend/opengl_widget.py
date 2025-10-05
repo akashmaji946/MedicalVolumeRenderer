@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QLabel
 import shutil
 import subprocess
 import time
+import os
 
 class OpenGLWidget(QOpenGLWidget):
     def __init__(self, renderer, parent=None):
@@ -95,8 +96,8 @@ class OpenGLWidget(QOpenGLWidget):
                 if self._base_title is None:
                     self._base_title = win.windowTitle() or "Medical Volume Renderer - v0"
                 win.setWindowTitle(f"{self._base_title} - {fps:.1f} FPS.")
-            # Update overlay text: File (full path), FPS, GPU
-            file_line = self.dataset_path if self.dataset_path else (self.dataset_name if self.dataset_name else "-")
+            # Update overlay text: File (short name), FPS, GPU
+            file_line = os.path.basename(self.dataset_path) if self.dataset_path else (self.dataset_name if self.dataset_name else "-")
             gpu_line = self._gpu_usage_text()
             self.info_label.setText(f"FILE: {file_line}\nFPS: {fps:.1f}\nGPU: {gpu_line}")
             self.info_label.adjustSize()
@@ -133,8 +134,8 @@ class OpenGLWidget(QOpenGLWidget):
     def set_dataset_name(self, name: str):
         self.dataset_name = name or ""
         # Update immediately
-        file_line = self.dataset_path if self.dataset_path else (self.dataset_name if self.dataset_name else "-")
-        self.info_label.setText(f"File: {file_line}\nFPS: 0.0\nGPU: {self._gpu_usage_text()}")
+        file_line = os.path.basename(self.dataset_path) if self.dataset_path else (self.dataset_name if self.dataset_name else "-")
+        self.info_label.setText(f"FILE: {file_line}\nFPS: 0.0\nGPU: {self._gpu_usage_text()}")
         self.info_label.adjustSize()
 
     def set_overlay_visible(self, visible: bool):
@@ -157,11 +158,12 @@ class OpenGLWidget(QOpenGLWidget):
         self.dataset_path = path or ""
         # Also set name for fallback
         try:
-            import os
             self.dataset_name = os.path.basename(path) if path else ""
         except Exception:
             pass
-        self.info_label.setText(f"File: {self.dataset_path if self.dataset_path else (self.dataset_name or '-') }\nFPS: 0.0\nGPU: {self._gpu_usage_text()}")
+        # Show only the short file name in the overlay
+        short_name = self.dataset_name if self.dataset_name else "-"
+        self.info_label.setText(f"FILE: {short_name}\nFPS: 0.0\nGPU: {self._gpu_usage_text()}")
         self.info_label.adjustSize()
 
     def render_offscreen(self, width: int, height: int):
