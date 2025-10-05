@@ -15,7 +15,7 @@ from opengl_widget import OpenGLWidget
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Medical Volume Renderer v0")
+        self.setWindowTitle("Medical Volume Renderer- v0")
         # Start with a reasonable size; user can maximize/minimize
         self.resize(1600, 900)
 
@@ -246,35 +246,64 @@ class MainWindow(QMainWindow):
         QShortcut(Qt.Key.Key_Escape, self, activated=self.exit_fullscreen)
 
     def load_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open File", "", "NIfTI Files (*.nii *.nii.gz);;All Files (*)")
-        if path:
-            print(f"Python: Loading {path}")
-            if self.renderer.load_volume(path):
-                print("Python: Load successful.")
-                # Update overlay with dataset name
-                try:
-                    name = os.path.basename(path)
-                    self.gl_widget.set_dataset_name(name)
-                    self.gl_widget.set_dataset_path(path)
-                except Exception:
-                    self.gl_widget.set_dataset_name("")
-                # Add to history (unique, max 10)
-                self.push_history(path)
-                # Ensure current UI state is applied post-load
-                self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
-                self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
-                # Apply current bbox scale
-                self.on_bbox_scale_changed(self.bbox_slider.value())
-                # Initialize slicer limits using volume dims
-                self.init_slicer_limits()
-                self.gl_widget.update() # Trigger repaint to show bounding box
-            else:
-                print("Python: Load failed.")
-                # Show alert banner
-                try:
-                    self.gl_widget.show_alert("Data loading failed", 5000)
-                except Exception:
-                    pass
+        # Ask the user whether to load a NIfTI file or a DICOM folder
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Load Data",
+            "Select input type",
+            ["NIfTI file (.nii/.nii.gz)", "DICOM folder (recursively)"],
+            0,
+            False,
+        )
+        if not ok:
+            return
+
+        path = ""
+        if choice.startswith("NIfTI"):
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Open NIfTI File",
+                "",
+                "NIfTI Files (*.nii *.nii.gz);;All Files (*)",
+            )
+        else:
+            path = QFileDialog.getExistingDirectory(
+                self,
+                "Select DICOM Folder",
+                "",
+                QFileDialog.Option.ShowDirsOnly,
+            )
+
+        if not path:
+            return
+
+        print(f"Python: Loading {path}")
+        if self.renderer.load_volume(path):
+            print("Python: Load successful.")
+            # Update overlay with dataset name
+            try:
+                name = os.path.basename(path)
+                self.gl_widget.set_dataset_name(name)
+                self.gl_widget.set_dataset_path(path)
+            except Exception:
+                self.gl_widget.set_dataset_name("")
+            # Add to history (unique, max 10)
+            self.push_history(path)
+            # Ensure current UI state is applied post-load
+            self.renderer.set_show_bounding_box(self.bbox_checkbox.isChecked())
+            self.renderer.set_colormap_preset(self.cmap_combo.currentIndex())
+            # Apply current bbox scale
+            self.on_bbox_scale_changed(self.bbox_slider.value())
+            # Initialize slicer limits using volume dims
+            self.init_slicer_limits()
+            self.gl_widget.update()  # Trigger repaint to show bounding box
+        else:
+            print("Python: Load failed.")
+            # Show alert banner
+            try:
+                self.gl_widget.show_alert("Data loading failed", 5000)
+            except Exception:
+                pass
 
     def on_bbox_scale_changed(self, slider_value: int):
         scale = max(0.1, min(5.0, slider_value / 100.0))

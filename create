@@ -1,0 +1,3 @@
+cd build
+pyinstaller --noconfirm --onefile --windowed --name renderer --hidden-import PyQt6.QtOpenGLWidgets --hidden-import volumerenderer --add-data "../backend/shaders:backend/shaders" ../frontend/main.py
+cd ..

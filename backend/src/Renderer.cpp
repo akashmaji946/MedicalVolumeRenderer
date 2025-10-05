@@ -26,7 +26,7 @@ static std::string loadShaderFile(const char* filename) {
     std::string fullPath = std::string(SHADERS_DIR) + "/" + filename;
     std::ifstream file(fullPath);
     if (!file.is_open()) {
-        std::cerr << "[Renderer] ERROR: Cannot open shader file: " << fullPath << std::endl;
+        std::cerr << "[Renderer::loadShaderFile] ERROR: Cannot open shader file: " << fullPath << std::endl;
         return std::string();
     }
     std::stringstream buffer;
@@ -55,14 +55,14 @@ void Renderer::init() {
     // In Qt, the context is current when this is called, so glad can query via system loader.
     // If this fails, nothing will render.
     if (!gladLoadGL()) {
-        std::cerr << "  [Renderer::init] ERROR: Failed to initialize GLAD. OpenGL functions unavailable." << std::endl;
+        std::cerr << "  [Renderer::init ] ERROR: Failed to initialize GLAD. OpenGL functions unavailable." << std::endl;
         return;
     }
 
-    std::cout << "  [Renderer::init] OpenGL version: " << glGetString(GL_VERSION) << std::endl;
-    std::cout << "  [Renderer::init] GLSL version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
-    std::cout << "  [Renderer::init] Vendor: " << glGetString(GL_VENDOR) << std::endl;
-    std::cout << "  [Renderer::init] Renderer: " << glGetString(GL_RENDERER) << std::endl;
+    std::cout << "  [Renderer::init ] OpenGL version: " << glGetString(GL_VERSION) << std::endl;
+    std::cout << "  [Renderer::init ] GLSL version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
+    std::cout << "  [Renderer::init ] Vendor: " << glGetString(GL_VENDOR) << std::endl;
+    std::cout << "  [Renderer::init ] Renderer: " << glGetString(GL_RENDERER) << std::endl;
 
     // --- Compile Shaders --- (bounding box)
     std::string bboxVSsrc = loadShaderFile("bbox.vert");
@@ -682,7 +682,7 @@ void Renderer::frameCameraToBox() {
 }
 
 bool Renderer::loadVolume(const std::string& path) {
-    std::cout << "      MVR INFO: Attempting to load volume from path: " << path << std::endl;
+    std::cout << "      MVR INFO:: Attempting to load volume from path: " << path << std::endl;
     if (!fs::exists(path)) {
         std::cerr << "      MVR ERROR: Path does not exist: " << path << std::endl;
         return false;
@@ -691,7 +691,7 @@ bool Renderer::loadVolume(const std::string& path) {
 
     bool success = false;
     if (fs::is_directory(path)) {
-        std::cout << "      MVR INFO: Path is a directory, attempting to load as DICOM series." << std::endl;
+        std::cout << "      MVR INFO:: Path is a directory, attempting to load as DICOM series." << std::endl;
         success = DataLoader::loadDICOM(path, *m_volumeData);
     } else if (fs::is_regular_file(path)) {
         std::cout << "      MVR INFO: Path is a file, attempting to load." << std::endl;
