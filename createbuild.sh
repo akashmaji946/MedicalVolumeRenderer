@@ -1,0 +1,19 @@
+# createbuild.sh
+# creates the executable 'renderer-x86_64'
+# run 'runbuild.sh' script to run the executable
+
+cd build
+export PYTHONPATH=$PYTHONPATH:/home/akashmaji/Downloads/MedicalVolumeRenderer/build
+
+pyinstaller --noconfirm --onefile --windowed \
+  --name renderer \
+  --paths /home/akashmaji/Downloads/MedicalVolumeRenderer/build \
+  --hidden-import PyQt6.QtOpenGLWidgets \
+  --hidden-import volumerenderer \
+  --add-binary "/home/akashmaji/Downloads/MedicalVolumeRenderer/build/volumerenderer.cpython-313-x86_64-linux-gnu.so:." \
+  --add-data "../backend/shaders:backend/shaders" \
+  ../frontend/main.py
+
+cp dist/renderer ../renderer-x86_64
+cp dist/renderer ../releases/renderer-x86_64
+cd ..
