@@ -6,9 +6,9 @@ A lightweight OpenGL-based 3D volume renderer with a simple PyQt6 UI. Supports l
 
 The release binary(standalone) and library(.so) is available in the `releases` directory. It is a Linux binary that can be run on any Linux system.
 
-- renderer0: The first release binary. Supports loading NIfTI files.
-- renderer1 The second release binary. Supports loading NIfTI files and DICOM files.
-- renderer-x86_64: latest release support all above
+- renderer0: First release binary. Supports loading NIfTI files.
+- renderer1: Second release binary. Supports loading DICOM files also.
+- renderer-x86_64: Latest release binary. Supports loading NIfTI and DICOM files.
 
 
 You can use the `volumerenderer` library (`volumerenderer.cpython-313-x86_64-linux-gnu`) and put it in some standard path like: `/usr/include/..` to avoid building the backend.
