@@ -51,6 +51,10 @@ public:
 
     // Colormap preset (0..9) same mapping as default Renderer
     void setColormapPreset(int presetIndex);
+    // Transfer function (custom colormap)
+    struct TFPoint { float position; float r; float g; float b; float a; };
+    void setColormapModeCustom(bool useCustom);
+    void setTransferFunctionPoints(const std::vector<TFPoint>& points);
 
     // Match default Renderer API bits for UI parity
     void setShowBoundingBox(bool show);
@@ -89,4 +93,6 @@ private:
     int m_colormapPreset{0};
     bool m_showBoundingBox{true};
     float m_bboxScale{1.0f};
+    bool m_useCustomTF{false};
+    std::vector<TFPoint> m_tfPoints;
 };

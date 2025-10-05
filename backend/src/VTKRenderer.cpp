@@ -172,36 +172,61 @@ void VTKRenderer::setupFullscreenQuad() {
 }
 
 void VTKRenderer::setupColormapLUT() {
-    // Build or rebuild LUT according to current preset using tinycolormap
     const int N = 256;
     std::vector<unsigned char> data(N*4);
-    auto mapPreset = [](int preset){
-        using tinycolormap::ColormapType;
-        switch (preset) {
-            case 0: return ColormapType::Gray;    // Grayscale (we'll invert t below)
-            case 1: return ColormapType::Gray;    // Grayscale normal
-            case 2: return ColormapType::Hot;     // Hot
-            case 3: return ColormapType::Turbo;   // Cool-ish
-            case 4: return ColormapType::Plasma;  // Spring-like
-            case 5: return ColormapType::Cividis; // Summer-like
-            case 6: return ColormapType::Inferno; // Autumn-like
-            case 7: return ColormapType::Magma;   // Winter-like
-            case 8: return ColormapType::Jet;     // Jet-like
-            default:return ColormapType::Viridis; // Viridis-like
+    if (m_useCustomTF && !m_tfPoints.empty()) {
+        auto pts = m_tfPoints;
+        for (auto &p : pts) {
+            if (p.position < 0.f) p.position = 0.f; if (p.position > 1.f) p.position = 1.f;
         }
-    };
-    using tinycolormap::GetColor;
-    using tinycolormap::ColormapType;
-    ColormapType type = mapPreset(m_colormapPreset);
-    for (int i=0;i<N;++i){
-        float t = i / float(N-1);
-        // For preset 0 we invert like in Renderer mapping
-        if (m_colormapPreset == 0) t = 1.0f - t;
-        auto c = GetColor(static_cast<double>(t), type);
-        data[4*i+0] = (unsigned char)std::round(255.0 * c.r());
-        data[4*i+1] = (unsigned char)std::round(255.0 * c.g());
-        data[4*i+2] = (unsigned char)std::round(255.0 * c.b());
-        data[4*i+3] = 255;
+        std::sort(pts.begin(), pts.end(), [](const TFPoint& a, const TFPoint& b){ return a.position < b.position; });
+        if (pts.size() == 1) pts.push_back(pts.front());
+        for (int i=0;i<N;++i){
+            float t = i / float(N-1);
+            const TFPoint* lower = &pts.front();
+            const TFPoint* upper = &pts.back();
+            for (const auto& p : pts) { if (p.position <= t) lower = &p; else break; }
+            for (const auto& p : pts) { if (p.position >= t) { upper = &p; break; } }
+            float range = upper->position - lower->position;
+            float alpha = (range <= 0.0f) ? 0.0f : (t - lower->position) / range;
+            float r = lower->r + alpha * (upper->r - lower->r);
+            float g = lower->g + alpha * (upper->g - lower->g);
+            float b = lower->b + alpha * (upper->b - lower->b);
+            float a = lower->a + alpha * (upper->a - lower->a);
+            data[4*i+0] = (unsigned char)std::round(255.0f * std::clamp(r, 0.0f, 1.0f));
+            data[4*i+1] = (unsigned char)std::round(255.0f * std::clamp(g, 0.0f, 1.0f));
+            data[4*i+2] = (unsigned char)std::round(255.0f * std::clamp(b, 0.0f, 1.0f));
+            data[4*i+3] = (unsigned char)std::round(255.0f * std::clamp(a, 0.0f, 1.0f));
+        }
+    } else {
+        // Build or rebuild LUT according to current preset using tinycolormap
+        auto mapPreset = [](int preset){
+            using tinycolormap::ColormapType;
+            switch (preset) {
+                case 0: return ColormapType::Gray;    // Grayscale (we'll invert t below)
+                case 1: return ColormapType::Gray;    // Grayscale normal
+                case 2: return ColormapType::Hot;     // Hot
+                case 3: return ColormapType::Turbo;   // Cool-ish
+                case 4: return ColormapType::Plasma;  // Spring-like
+                case 5: return ColormapType::Cividis; // Summer-like
+                case 6: return ColormapType::Inferno; // Autumn-like
+                case 7: return ColormapType::Magma;   // Winter-like
+                case 8: return ColormapType::Jet;     // Jet-like
+                default:return ColormapType::Viridis; // Viridis-like
+            }
+        };
+        using tinycolormap::GetColor;
+        using tinycolormap::ColormapType;
+        ColormapType type = mapPreset(m_colormapPreset);
+        for (int i=0;i<N;++i){
+            float t = i / float(N-1);
+            if (m_colormapPreset == 0) t = 1.0f - t;
+            auto c = GetColor(static_cast<double>(t), type);
+            data[4*i+0] = (unsigned char)std::round(255.0 * c.r());
+            data[4*i+1] = (unsigned char)std::round(255.0 * c.g());
+            data[4*i+2] = (unsigned char)std::round(255.0 * c.b());
+            data[4*i+3] = 255;
+        }
     }
     if (m_lutTex1D == 0) glGenTextures(1, &m_lutTex1D);
     glBindTexture(GL_TEXTURE_1D, m_lutTex1D);
@@ -211,6 +236,16 @@ void VTKRenderer::setupColormapLUT() {
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA8, N, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
     glBindTexture(GL_TEXTURE_1D, 0);
+}
+
+void VTKRenderer::setColormapModeCustom(bool useCustom){
+    m_useCustomTF = useCustom;
+    m_needsGLSetup = true;
+}
+
+void VTKRenderer::setTransferFunctionPoints(const std::vector<TFPoint>& points){
+    m_tfPoints = points;
+    m_needsGLSetup = true;
 }
 
 void VTKRenderer::setupBoundingBox() {

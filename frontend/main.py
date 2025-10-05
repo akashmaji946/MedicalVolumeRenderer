@@ -231,7 +231,61 @@ class MainWindow(QMainWindow):
         self.slicer_timer = QTimer(self)
         self.slicer_timer.timeout.connect(self.step_slicer)
 
-        # Delayed notification timer helper usage happens via _notify_loaded
+        # --- Colormap / Transfer Function (collapsible) ---
+        self.tf_toggle_btn = QPushButton("Colormap / Transfer Function ▸")
+        self.tf_toggle_btn.setCheckable(True)
+        self.tf_toggle_btn.setChecked(False)
+        self.tf_toggle_btn.toggled.connect(self.toggle_tf_panel)
+        controls_layout.addWidget(self.tf_toggle_btn)
+
+        self.tf_panel = QWidget()
+        self.tf_panel_layout = QVBoxLayout(self.tf_panel)
+        self.tf_panel.setVisible(False)
+
+        # Preset vs Custom
+        tf_mode_row = QHBoxLayout()
+        tf_mode_row.addWidget(QLabel("Mode"))
+        self.tf_mode_combo = QComboBox()
+        self.tf_mode_combo.addItems(["Preset", "Custom"])
+        self.tf_mode_combo.currentIndexChanged.connect(self.on_tf_mode_changed)
+        tf_mode_row.addWidget(self.tf_mode_combo)
+        self.tf_panel_layout.addLayout(tf_mode_row)
+
+        # Preset helper (reuse existing cmap combo)
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel("Preset"))
+        self.tf_preset_combo = self.cmap_combo  # reuse
+        preset_row.addWidget(self.tf_preset_combo)
+        self.tf_panel_layout.addLayout(preset_row)
+
+        # Custom TF table
+        from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
+        self.tf_table = QTableWidget(0, 5)
+        self.tf_table.setHorizontalHeaderLabels(["Pos", "R", "G", "B", "A"])
+        self.tf_table.horizontalHeader().setStretchLastSection(True)
+        self.tf_panel_layout.addWidget(self.tf_table)
+
+        # Buttons for TF editing
+        tf_btn_row = QHBoxLayout()
+        self.tf_add_btn = QPushButton("Add")
+        # Use lambda to avoid passing the 'checked' bool argument from clicked(bool)
+        self.tf_add_btn.clicked.connect(lambda: self.tf_add_point())
+        tf_btn_row.addWidget(self.tf_add_btn)
+        self.tf_remove_btn = QPushButton("Remove")
+        self.tf_remove_btn.clicked.connect(self.tf_remove_selected)
+        tf_btn_row.addWidget(self.tf_remove_btn)
+        self.tf_apply_btn = QPushButton("Apply")
+        self.tf_apply_btn.clicked.connect(self.tf_apply_custom)
+        tf_btn_row.addWidget(self.tf_apply_btn)
+        self.tf_reset_btn = QPushButton("Reset")
+        self.tf_reset_btn.clicked.connect(self.tf_reset_to_preset)
+        tf_btn_row.addWidget(self.tf_reset_btn)
+        self.tf_panel_layout.addLayout(tf_btn_row)
+
+        controls_layout.addWidget(self.tf_panel)
+
+        # Seed with a small useful default TF
+        self.tf_seed_default()
 
 
         # Spacer to push items up
@@ -336,6 +390,7 @@ class MainWindow(QMainWindow):
         self.bbox_slider.setEnabled(True)
         # Slicer stays enabled in both modes
         # Background color is handled safely in code even if not supported by VTK
+        # TF panel stays enabled in both modes
 
     # --- Event/handler refactors to be renderer-agnostic ---
     def on_bbox_toggled(self, state: int):
@@ -375,6 +430,100 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.vtk_field_combo.blockSignals(False)
+
+    # --- Transfer Function UI helpers ---
+    def toggle_tf_panel(self, checked: bool):
+        self.tf_panel.setVisible(checked)
+        self.tf_toggle_btn.setText("Colormap / Transfer Function ▾" if checked else "Colormap / Transfer Function ▸")
+
+    def on_tf_mode_changed(self, idx: int):
+        # 0 = Preset, 1 = Custom
+        use_custom = (idx == 1)
+        try:
+            if hasattr(self.renderer, 'set_colormap_mode_custom'):
+                self.renderer.set_colormap_mode_custom(bool(use_custom))
+            # If switching back to preset, reapply the current preset
+            if not use_custom and hasattr(self.renderer, 'set_colormap_preset'):
+                self.renderer.set_colormap_preset(int(self.cmap_combo.currentIndex()))
+        except Exception:
+            pass
+        self.gl_widget.update()
+
+    def tf_seed_default(self):
+        # A small default set of points similar to your ImGui example
+        defaults = [
+            (0.00, 0.0, 0.0, 0.0, 0.0),
+            (0.30, 0.2, 0.2, 1.0, 0.0),
+            (0.50, 1.0, 1.0, 0.2, 0.8),
+            (1.00, 1.0, 0.2, 0.2, 1.0),
+        ]
+        self.tf_table.setRowCount(0)
+        for p in defaults:
+            self.tf_add_point(values=p)
+
+    def tf_add_point(self, values=None):
+        # QPushButton.clicked(bool) may pass a boolean; treat it as no values provided
+        if isinstance(values, bool):
+            values = None
+        from PyQt6.QtWidgets import QDoubleSpinBox
+        row = self.tf_table.rowCount()
+        self.tf_table.insertRow(row)
+        cols = ["Pos", "R", "G", "B", "A"]
+        defaults = (0.5, 1, 1, 1, 1) if values is None else values
+        for c, val in enumerate(defaults):
+            spin = QDoubleSpinBox()
+            spin.setDecimals(3)
+            spin.setRange(0.0, 1.0)
+            spin.setSingleStep(0.01)
+            spin.setValue(float(val))
+            self.tf_table.setCellWidget(row, c, spin)
+
+    def tf_remove_selected(self):
+        rows = sorted({idx.row() for idx in self.tf_table.selectedIndexes()}, reverse=True)
+        for r in rows:
+            self.tf_table.removeRow(r)
+
+    def _collect_tf_points(self):
+        pts = []
+        for r in range(self.tf_table.rowCount()):
+            row_vals = []
+            for c in range(5):
+                w = self.tf_table.cellWidget(r, c)
+                if w is None:
+                    row_vals.append(0.0)
+                else:
+                    try:
+                        row_vals.append(float(w.value()))
+                    except Exception:
+                        row_vals.append(0.0)
+            pts.append(tuple(row_vals))
+        # Sort by position
+        pts.sort(key=lambda t: t[0])
+        return pts
+
+    def tf_apply_custom(self):
+        pts = self._collect_tf_points()
+        if not pts:
+            return
+        try:
+            if hasattr(self.renderer, 'set_colormap_mode_custom'):
+                self.renderer.set_colormap_mode_custom(True)
+            if hasattr(self.renderer, 'set_transfer_function_points'):
+                self.renderer.set_transfer_function_points(pts)
+        except Exception as e:
+            print(f"Python: TF apply error: {e}")
+        self.gl_widget.update()
+
+    def tf_reset_to_preset(self):
+        # Switch mode and reapply preset from main preset combo
+        try:
+            if hasattr(self.renderer, 'set_colormap_mode_custom'):
+                self.renderer.set_colormap_mode_custom(False)
+            if hasattr(self.renderer, 'set_colormap_preset'):
+                self.renderer.set_colormap_preset(int(self.cmap_combo.currentIndex()))
+        except Exception:
+            pass
+        self.gl_widget.update()
 
     def on_vtk_field_changed(self, idx: int):
         try:

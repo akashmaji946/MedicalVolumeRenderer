@@ -49,6 +49,10 @@ public:
     // Controls
     void setShowBoundingBox(bool show);
     void setColormapPreset(int presetIndex);
+    // Transfer function (custom colormap)
+    void setColormapModeCustom(bool useCustom);
+    struct TFPoint { float position; float r; float g; float b; float a; };
+    void setTransferFunctionPoints(const std::vector<TFPoint>& points);
     void setBackgroundColor(float r, float g, float b);
     void setBoundingBoxScale(float scale);
     void frameCameraToBox();
@@ -84,6 +88,8 @@ private:
 
     bool m_showBoundingBox = true;
     int  m_colormapPreset = 0; // 0..9
+    bool m_useCustomTF = false;
+    std::vector<TFPoint> m_tfPoints; // positions in [0,1], colors RGBA in [0,1]
     glm::vec3 m_bgColor = glm::vec3(0.1f, 0.1f, 0.2f);
     float m_bboxScale = 1.0f;
     bool  m_shouldFrameCameraNext = true;

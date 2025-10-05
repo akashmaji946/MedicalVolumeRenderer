@@ -635,13 +635,42 @@ void Renderer::setupFullscreenQuad() {
 void Renderer::setupColormapLUT() {
     const int N = 256;
     std::vector<unsigned char> data(N*4);
-    for (int i=0;i<N;++i){
-        float t = i / float(N-1);
-        float r,g,b; colorPreset(m_colormapPreset, t, r, g, b);
-        data[4*i+0] = (unsigned char)std::round(255.0f * r);
-        data[4*i+1] = (unsigned char)std::round(255.0f * g);
-        data[4*i+2] = (unsigned char)std::round(255.0f * b);
-        data[4*i+3] = 255;
+    if (m_useCustomTF && !m_tfPoints.empty()) {
+        // Ensure points are sorted by position and clamped
+        auto pts = m_tfPoints;
+        for (auto &p : pts) {
+            if (p.position < 0.f) p.position = 0.f; if (p.position > 1.f) p.position = 1.f;
+        }
+        std::sort(pts.begin(), pts.end(), [](const TFPoint& a, const TFPoint& b){ return a.position < b.position; });
+        // Enforce at least two points by duplicating one if needed
+        if (pts.size() == 1) pts.push_back(pts.front());
+        for (int i=0;i<N;++i){
+            float t = i / float(N-1);
+            // find surrounding points
+            const TFPoint* lower = &pts.front();
+            const TFPoint* upper = &pts.back();
+            for (const auto& p : pts) { if (p.position <= t) lower = &p; else break; }
+            for (const auto& p : pts) { if (p.position >= t) { upper = &p; break; } }
+            float range = upper->position - lower->position;
+            float alpha = (range <= 0.0f) ? 0.0f : (t - lower->position) / range;
+            float r = lower->r + alpha * (upper->r - lower->r);
+            float g = lower->g + alpha * (upper->g - lower->g);
+            float b = lower->b + alpha * (upper->b - lower->b);
+            float a = lower->a + alpha * (upper->a - lower->a);
+            data[4*i+0] = (unsigned char)std::round(255.0f * std::clamp(r, 0.0f, 1.0f));
+            data[4*i+1] = (unsigned char)std::round(255.0f * std::clamp(g, 0.0f, 1.0f));
+            data[4*i+2] = (unsigned char)std::round(255.0f * std::clamp(b, 0.0f, 1.0f));
+            data[4*i+3] = (unsigned char)std::round(255.0f * std::clamp(a, 0.0f, 1.0f));
+        }
+    } else {
+        for (int i=0;i<N;++i){
+            float t = i / float(N-1);
+            float r,g,b; colorPreset(m_colormapPreset, t, r, g, b);
+            data[4*i+0] = (unsigned char)std::round(255.0f * r);
+            data[4*i+1] = (unsigned char)std::round(255.0f * g);
+            data[4*i+2] = (unsigned char)std::round(255.0f * b);
+            data[4*i+3] = 255;
+        }
     }
     if (m_lutTex1D == 0) glGenTextures(1, &m_lutTex1D);
     glBindTexture(GL_TEXTURE_1D, m_lutTex1D);
@@ -651,6 +680,16 @@ void Renderer::setupColormapLUT() {
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA8, N, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
     glBindTexture(GL_TEXTURE_1D, 0);
+}
+
+void Renderer::setColormapModeCustom(bool useCustom){
+    m_useCustomTF = useCustom;
+    m_needsGLSetup = true;
+}
+
+void Renderer::setTransferFunctionPoints(const std::vector<TFPoint>& points){
+    m_tfPoints = points;
+    m_needsGLSetup = true;
 }
 
 void Renderer::setShowBoundingBox(bool show) { m_showBoundingBox = show; }

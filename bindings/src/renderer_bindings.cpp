@@ -88,6 +88,19 @@ void bind_renderer(py::module_& m) {
             .def("set_bounding_box_scale", &Renderer::setBoundingBoxScale, py::arg("scale"),
                  "Set bounding box scale (default 1.0, clamped to [0.1, 5.0])")
             .def("frame_camera_to_box", &Renderer::frameCameraToBox, "Frame camera to volume bounding box")
+            .def("set_colormap_mode_custom", &Renderer::setColormapModeCustom, py::arg("use_custom"),
+                 "Enable or disable custom transfer function mode")
+            .def("set_transfer_function_points",
+                 [](Renderer& self, const std::vector<std::tuple<float,float,float,float,float>>& pts){
+                     std::vector<Renderer::TFPoint> cpp;
+                     cpp.reserve(pts.size());
+                     for (auto& t : pts){
+                         Renderer::TFPoint p{std::get<0>(t), std::get<1>(t), std::get<2>(t), std::get<3>(t), std::get<4>(t)};
+                         cpp.push_back(p);
+                     }
+                     self.setTransferFunctionPoints(cpp);
+                 }, py::arg("points"),
+                 "Set custom transfer function points as list of (position,r,g,b,a) with values in [0,1]")
             // Slicer controls
             .def("set_slice_mode", &Renderer::setSliceMode, py::arg("enabled"), "Enable/disable slicer view")
             .def("set_slice_axis", &Renderer::setSliceAxis, py::arg("axis"), "Set slicer axis: 0=Z,1=Y,2=X")
@@ -129,6 +142,17 @@ void bind_renderer(py::module_& m) {
             .def("set_bounding_box_scale", &VTKRenderer::setBoundingBoxScale, py::arg("scale"))
             .def("set_show_bounding_box", &VTKRenderer::setShowBoundingBox, py::arg("show"))
             .def("frame_camera_to_box", &VTKRenderer::frameCameraToBox)
+            .def("set_colormap_mode_custom", &VTKRenderer::setColormapModeCustom, py::arg("use_custom"))
+            .def("set_transfer_function_points",
+                 [](VTKRenderer& self, const std::vector<std::tuple<float,float,float,float,float>>& pts){
+                     std::vector<VTKRenderer::TFPoint> cpp;
+                     cpp.reserve(pts.size());
+                     for (auto& t : pts){
+                         VTKRenderer::TFPoint p{std::get<0>(t), std::get<1>(t), std::get<2>(t), std::get<3>(t), std::get<4>(t)};
+                         cpp.push_back(p);
+                     }
+                     self.setTransferFunctionPoints(cpp);
+                 }, py::arg("points"))
             .def("set_slice_mode", &VTKRenderer::setSliceMode, py::arg("enabled"))
             .def("set_slice_axis", &VTKRenderer::setSliceAxis, py::arg("axis"))
             .def("set_slice_index", &VTKRenderer::setSliceIndex, py::arg("index"))
