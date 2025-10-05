@@ -1,6 +1,17 @@
+```
+____________________________
+ __  __  __      __  _____  
+|  \/  | \ \    / / |  __ \ 
+| |\/| |  \ \  / /  | |__) |
+| |  | |   \ \/ /   |  _  / 
+|_|  |_|    \__/    |_| \_\ 
+MVR - Medical Volume Renderer
+____________________________
+```
+
 # Medical Volume Renderer (v0)
 
-A lightweight OpenGL-based 3D volume renderer with a simple PyQt6 UI. Supports loading NIfTI (.nii, .nii.gz) and basic camera controls, colormap presets, and a slicer mode.
+A lightweight OpenGL-based 3D volume renderer with a simple PyQt6 UI. Supports loading NIfTI (.nii, .nii.gz) and DICOM (.dcm) files and basic camera controls, colormap presets, and a slicer mode.
 
 ## Releases
 
