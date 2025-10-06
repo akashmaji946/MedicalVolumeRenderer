@@ -585,19 +585,26 @@ static void colorPreset(int preset, float t, float& r, float& g, float& b){
     using tinycolormap::ColormapType;
     ColormapType type = ColormapType::Viridis;
 
-    // Map our 0..9 presets onto tinycolormap presets
-    // 0: Gray, 1: Gray inverted, 2: Hot, 3: Turbo (as cool-ish), 4: Plasma,
-    // 5: Cividis, 6: Inferno, 7: Magma, 8: Jet, 9: Viridis
+    // Map our 0..14 presets onto tinycolormap presets
+    // 0: Gray, 1: Gray (Inverted), 2: Parula, 3: Heat, 4: Jet,
+    // 5: Turbo, 6: Hot, 7: Magma, 8: Inferno, 9: Plasma,
+    // 10: Viridis, 11: Cividis, 12: Github, 13: Cubehelix, 14: HSV
     switch (preset) {
-        case 0: type = ColormapType::Gray; t = 1.0f - t; break;
-        case 1: type = ColormapType::Gray; break;
-        case 2: type = ColormapType::Hot; break;
-        case 3: type = ColormapType::Turbo; break;
-        case 4: type = ColormapType::Plasma; break;
-        case 5: type = ColormapType::Cividis; break;
-        case 6: type = ColormapType::Inferno; break;
-        case 7: type = ColormapType::Magma; break;
-        case 8: type = ColormapType::Jet; break;
+        case 0: type = ColormapType::Gray; break;                        // Gray
+        case 1: type = ColormapType::Gray; t = 1.0f - t; break;          // Gray (Inverted)
+        case 2: type = ColormapType::Parula; break;                      // Parula
+        case 3: type = ColormapType::Heat; break;                        // Heat
+        case 4: type = ColormapType::Jet; break;                         // Jet
+        case 5: type = ColormapType::Turbo; break;                       // Turbo
+        case 6: type = ColormapType::Hot; break;                         // Hot
+        case 7: type = ColormapType::Magma; break;                       // Magma
+        case 8: type = ColormapType::Inferno; break;                     // Inferno
+        case 9: type = ColormapType::Plasma; break;                      // Plasma
+        case 10: type = ColormapType::Viridis; break;                    // Viridis
+        case 11: type = ColormapType::Cividis; break;                    // Cividis
+        case 12: type = ColormapType::Github; break;                     // Github
+        case 13: type = ColormapType::Cubehelix; break;                  // Cubehelix
+        case 14: type = ColormapType::HSV; break;                        // HSV
         default: type = ColormapType::Viridis; break;
     }
 
@@ -695,7 +702,7 @@ void Renderer::setTransferFunctionPoints(const std::vector<TFPoint>& points){
 void Renderer::setShowBoundingBox(bool show) { m_showBoundingBox = show; }
 
 void Renderer::setColormapPreset(int presetIndex) {
-    m_colormapPreset = std::max(0, std::min(9, presetIndex));
+    m_colormapPreset = std::max(0, std::min(14, presetIndex));
     // Mark for deferred rebuild next frame when context is current
     m_needsGLSetup = true;
 }

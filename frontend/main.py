@@ -131,33 +131,45 @@ class MainWindow(QMainWindow):
 
         # Colormap selector (label removed per request)
         self.cmap_combo = QComboBox()
+        # Backend tinycolormap presets (order matters; must match Renderer.cpp mapping)
         self.cmap_presets = [
-            "Grayscale",            # 0
-            "Grayscale (Inverted)", # 1
-            "Hot",                  # 2
-            "Cool",                 # 3
-            "Spring",               # 4
-            "Summer",               # 5
-            "Autumn",               # 6
-            "Winter",               # 7
-            "Jet-like",             # 8
-            "Viridis-like"          # 9
+            "Gray",               # 0
+            "Gray (Inverted)",   # 1
+            "Parula",            # 2
+            "Heat",              # 3
+            "Jet",               # 4
+            "Turbo",             # 5
+            "Hot",               # 6
+            "Magma",             # 7
+            "Inferno",           # 8
+            "Plasma",            # 9
+            "Viridis",           # 10
+            "Cividis",           # 11
+            "Github",            # 12
+            "Cubehelix",         # 13
+            "HSV",               # 14
         ]
         self.cmap_combo.addItems(self.cmap_presets)
         self.cmap_combo.currentIndexChanged.connect(self.on_cmap_changed)
         controls_layout.addWidget(self.cmap_combo)
-        # Map our preset indices to pyqtgraph preset names
+        # Map our backend preset indices to pyqtgraph preset names for gradient preview
+        # Use best-available approximations when an exact preset does not exist in pyqtgraph
         self._pg_preset_map = {
-            0: 'grey',      # Grayscale
-            1: 'grey',      # Grayscale (Inverted) -> will reverse
-            2: 'hot',
-            3: 'cool',
-            4: 'spring',
-            5: 'summer',
-            6: 'autumn',
-            7: 'winter',
-            8: 'jet',
-            9: 'viridis',
+            0: 'grey',        # Gray
+            1: 'grey',        # Gray (Inverted) -> will reverse in _apply_preset_to_gradient
+            2: 'viridis',     # Parula (approx)
+            3: 'thermal',     # Heat (approx)
+            4: 'spectrum',    # Jet via HSV spectrum
+            5: 'turbo',       # Turbo
+            6: 'hot',         # Hot
+            7: 'magma',       # Magma
+            8: 'inferno',     # Inferno
+            9: 'plasma',      # Plasma
+            10: 'viridis',    # Viridis
+            11: 'viridis',   # Cividis approx
+            12: 'grey',       # Github (no direct; placeholder)
+            13: 'grey',       # Cubehelix (no direct; placeholder)
+            14: 'spectrum',   # HSV
         }
 
         # Bounding box scale slider (0.1x .. 5.0x)
