@@ -54,7 +54,7 @@ You can use the `volumerenderer` library (`volumerenderer.cpython-313-x86_64-lin
 - Save Screen: Screenshot the entire window (UI included).
 
 ## Screenshots
-![App](images/app.png)
+![App](images/UI.png)
 
 ![Rendered volume](images/render.png)
 
