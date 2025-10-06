@@ -5,8 +5,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QComboBox, QLabel, QSizePolicy, QSpacerItem, QColorDialog,
                              QSlider, QSpinBox, QInputDialog, QTableWidget, QTableWidgetItem,
                              QDoubleSpinBox, QGraphicsView, QGraphicsScene, QGraphicsEllipseItem,
-                             QHeaderView)
-from PyQt6.QtGui import QSurfaceFormat, QShortcut
+                             QHeaderView, QScrollArea, QGraphicsOpacityEffect, QFrame)
+from PyQt6.QtGui import QSurfaceFormat, QShortcut, QFont, QPixmap
 from PyQt6.QtCore import Qt, QTimer
 import json
 from PyQt6.QtGui import QSurfaceFormat  # <-- Import QSurfaceFormat
@@ -18,7 +18,7 @@ from opengl_widget import OpenGLWidget
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Medical Volume Renderer- v0")
+        self.setWindowTitle("Medical Volume Renderer")
 
         ## print ascii logo
         # ____________________________
@@ -32,7 +32,7 @@ class MainWindow(QMainWindow):
 
         print(r"""
             ____________________________
-            __  __  __      __  _____  
+             __  __  __      __  _____  
             |  \/  | \ \    / / |  __ \ 
             | |\/| |  \ \  / /  | |__) |
             | |  | |   \ \/ /   |  _  / 
@@ -54,16 +54,158 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         root = QHBoxLayout(central_widget)
 
+        # --- Very light background image overlay (entire window) ---
+        try:
+            self._bg_image_label = QLabel(central_widget)
+            self._bg_image_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            self._bg_image_label.setScaledContents(True)
+            # Resolve image path: ../images/ascii-art-text.png
+            app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+            bg_path = os.path.join(app_root, 'images', 'ascii-art-text.png')
+            self._bg_pix = QPixmap(bg_path) if os.path.exists(bg_path) else QPixmap()
+            # Apply faint opacity
+            self._bg_opacity = QGraphicsOpacityEffect(self._bg_image_label)
+            self._bg_opacity.setOpacity(0.3)  # very light overlay
+            self._bg_image_label.setGraphicsEffect(self._bg_opacity)
+            # Place above content but click-through so it won't block interaction
+            self._bg_image_label.raise_()
+            # Initial geometry and pixmap
+            self._resize_background_label()
+        except Exception:
+            self._bg_image_label = None
+
         # Left: OpenGL view (resizes with window)
         self.gl_widget = OpenGLWidget(self.renderer)
         self.gl_widget.setMinimumSize(800, 600)
         self.gl_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         root.addWidget(self.gl_widget, 1)
 
-        # Right: controls panel
+        # Right: controls panel (wrapped in a scroll area to avoid overflow)
         controls = QWidget()
         controls_layout = QVBoxLayout(controls)
-        controls_layout.setSpacing(8)
+        # Make the controls panel more compact
+        controls_layout.setSpacing(6)
+        controls_layout.setContentsMargins(6, 6, 6, 6)
+        # Reduce font size for the entire controls panel (does not affect GL view)
+        small_font = QFont()
+        # Slightly larger than before, still compact
+        small_font.setPointSize(max(9, self.font().pointSize() - 1))
+        controls.setFont(small_font)
+        # Tighten default widget paddings via stylesheet
+        controls.setStyleSheet(
+        """
+        QWidget {
+            font-size: 13px;
+            color: #0a0a0a;
+            background-color: #f7f9fc;
+        }
+
+        /* Buttons - very light elegant blue with soft gradients */
+        QPushButton {
+            padding: 6px 10px;
+            min-height: 28px;
+            color: #0a0a0a;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                        stop:0 #e9f3ff, stop:1 #cfe3ff);
+            border: 1px solid #a8cfff;
+            border-radius: 6px;
+        }
+        QPushButton:hover {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                        stop:0 #d8e9ff, stop:1 #bcd8ff);
+            border: 1px solid #7fb8ff;
+        }
+        QPushButton:pressed {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                        stop:0 #b8d3ff, stop:1 #9ec5ff);
+        }
+
+        /* ComboBoxes - matching aesthetic */
+        QComboBox {
+            padding: 4px 8px;
+            min-height: 26px;
+            color: #0a0a0a;
+            background: #e9f3ff;
+            border: 1px solid #a8cfff;
+            border-radius: 5px;
+        }
+        QComboBox:hover {
+            background: #d8e9ff;
+            border-color: #7fb8ff;
+        }
+
+        QSpinBox, QDoubleSpinBox {
+            padding: 2px 6px;
+            min-height: 24px;
+            border: 1px solid #a8cfff;
+            border-radius: 5px;
+            background: #ffffff;
+        }
+
+        QLabel {
+            font-size: 13px;
+        }
+
+        QCheckBox {
+            font-size: 13px;
+            spacing: 4px;
+        }
+        QCheckBox::indicator {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Table and headers */
+        QHeaderView::section {
+            padding: 4px 6px;
+            font-size: 12px;
+            background: #e2f0ff;
+            color: #0a0a0a;
+            border: 0px;
+            border-bottom: 1px solid #000000;
+        }
+
+        QTableWidget {
+            gridline-color: #000000;
+            background: #ffffff;
+        }
+
+        /* Sliders */
+        QSlider::groove:horizontal {
+            height: 8px;
+            background: rgba(120,180,255,0.35);
+            margin: 4px 0;
+            border-radius: 4px;
+        }
+        QSlider::handle:horizontal {
+            background: #77a9e6;
+            width: 14px;
+            margin: -6px 0;
+            border-radius: 7px;
+        }
+        QSlider::groove:vertical {
+            width: 8px;
+            background: rgba(120,180,255,0.35);
+            margin: 0 4px;
+            border-radius: 4px;
+        }
+        QSlider::handle:vertical {
+            background: #77a9e6;
+            height: 14px;
+            margin: 0 -6px;
+            border-radius: 7px;
+        }
+
+        /* Black separators for clarity */
+        QFrame#SectionSeparator {
+            background: #000000;
+            height: 1px;
+            margin-top: 4px;
+            margin-bottom: 4px;
+        }
+        """
+        )
+
 
         # Load button
         self.load_button = QPushButton("Load NIfTI/DICOM File")
@@ -75,6 +217,7 @@ class MainWindow(QMainWindow):
         self.vtk_quick_load_btn.setToolTip("Load a .vtk structured points/grid volume")
         self.vtk_quick_load_btn.clicked.connect(self.load_vtk_file)
         controls_layout.addWidget(self.vtk_quick_load_btn)
+        controls_layout.addWidget(self._make_separator())
 
         # VTK Field selector (top, visible always)
         vtk_field_row_top = QHBoxLayout()
@@ -124,10 +267,11 @@ class MainWindow(QMainWindow):
         toggles_row.addWidget(self.bbox_checkbox)
         self.overlay_checkbox = QCheckBox("Show Overlay (FPS & Name)")
         self.overlay_checkbox.setChecked(True)
-        self.overlay_checkbox.stateChanged.connect(lambda s: self.gl_widget.set_overlay_visible(bool(s)))
+        self.overlay_checkbox.stateChanged.connect(lambda s: self.set_overlay_all_visible(bool(s)))
         toggles_row.addWidget(self.overlay_checkbox)
         toggles_row.addStretch(1)
         controls_layout.addLayout(toggles_row)
+        controls_layout.addWidget(self._make_separator())
 
         # Colormap selector (label removed per request)
         self.cmap_combo = QComboBox()
@@ -195,7 +339,11 @@ class MainWindow(QMainWindow):
 
         self.slicer_panel = QWidget()
         self.slicer_panel_layout = QVBoxLayout(self.slicer_panel)
+        self.slicer_panel_layout.setSpacing(4)
+        self.slicer_panel_layout.setContentsMargins(0,0,0,0)
         self.slicer_panel.setVisible(False)
+        controls_layout.addWidget(self.slicer_panel)
+        controls_layout.addWidget(self._make_separator())
 
         # Enable checkbox
         self.slicer_enable = QCheckBox("Enable Slicer View")
@@ -260,6 +408,8 @@ class MainWindow(QMainWindow):
 
         self.tf_panel = QWidget()
         self.tf_panel_layout = QVBoxLayout(self.tf_panel)
+        self.tf_panel_layout.setSpacing(4)
+        self.tf_panel_layout.setContentsMargins(0,0,0,0)
         self.tf_panel.setVisible(False)
 
         # Preset vs Custom
@@ -320,6 +470,8 @@ class MainWindow(QMainWindow):
         self.tf_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.tf_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.tf_table.setShowGrid(False)
+        # Compact row height for TF table
+        self.tf_table.verticalHeader().setDefaultSectionSize(20)
         self.tf_panel_layout.addWidget(self.tf_table)
 
         # PyQtGraph Gradient Editor (for interactive control points)
@@ -355,6 +507,7 @@ class MainWindow(QMainWindow):
         self.tf_panel_layout.addLayout(tf_btn_row)
 
         controls_layout.addWidget(self.tf_panel)
+        controls_layout.addWidget(self._make_separator())
 
         # Seed with a small useful default TF
         self.tf_seed_default()
@@ -403,20 +556,36 @@ class MainWindow(QMainWindow):
         view_row.addWidget(self.btn_view_x)
 
         controls_layout.addLayout(view_row)
+        controls_layout.addWidget(self._make_separator())
 
         # Reset button at the very bottom
         self.reset_btn = QPushButton("Reset Defaults")
         self.reset_btn.clicked.connect(self.reset_defaults)
         controls_layout.addWidget(self.reset_btn)
 
-        # Fix a comfortable width for the controls panel
-        controls.setMinimumWidth(320)
-        controls.setMaximumWidth(420)
-        root.addWidget(controls)
+        # Wrap controls in a scroll area so expanded panels are still accessible
+        scroll = QScrollArea()
+        scroll.setWidget(controls)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # Fix a comfortable, more compact width for the controls area
+        scroll.setMinimumWidth(260)
+        scroll.setMaximumWidth(360)
+        root.addWidget(scroll)
 
         # Keyboard shortcuts: F11 to toggle fullscreen, Esc to exit fullscreen
         QShortcut(Qt.Key.Key_F11, self, activated=self.toggle_fullscreen)
         QShortcut(Qt.Key.Key_Escape, self, activated=self.exit_fullscreen)
+
+        # Apply compact sizing to child widgets in the controls panel
+        self._apply_compact_sizing(controls)
+        # Ensure the overlay sits above after all widgets are laid out
+        try:
+            if self._bg_image_label:
+                self._bg_image_label.raise_()
+        except Exception:
+            pass
 
     # --- Renderer switching helpers ---
     def switch_to_renderer(self, renderer, vtk_mode: bool):
@@ -473,6 +642,48 @@ class MainWindow(QMainWindow):
         try:
             if hasattr(self.renderer, 'set_show_bounding_box'):
                 self.renderer.set_show_bounding_box(bool(state))
+        except Exception:
+            pass
+
+    def _make_separator(self) -> QFrame:
+        """Create a thin, light horizontal separator for the controls panel."""
+        line = QFrame()
+        line.setObjectName("SectionSeparator")
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Plain)
+        line.setFixedHeight(1)
+        # Inline style in case global stylesheet is overridden later
+        line.setStyleSheet("QFrame#SectionSeparator{background: rgba(255,255,255,0.12); margin: 6px 0;}")
+        return line
+
+    def _apply_compact_sizing(self, parent_widget: QWidget):
+        """Reduce heights/paddings of buttons, sliders, and inputs to keep the UI compact."""
+        try:
+            from PyQt6.QtWidgets import QPushButton, QComboBox, QSlider, QSpinBox, QDoubleSpinBox
+            # Buttons
+            for btn in parent_widget.findChildren(QPushButton):
+                btn.setMinimumHeight(24)
+                btn.setMaximumHeight(28)
+            # Combos
+            for cb in parent_widget.findChildren(QComboBox):
+                cb.setMinimumHeight(24)
+                cb.setMaximumHeight(28)
+            # Sliders
+            for sl in parent_widget.findChildren(QSlider):
+                if sl.orientation() == Qt.Orientation.Horizontal:
+                    sl.setFixedHeight(16)
+                else:
+                    sl.setFixedWidth(16)
+            # Spin boxes
+            for sb in parent_widget.findChildren((QSpinBox, QDoubleSpinBox)):
+                sb.setMinimumHeight(22)
+                sb.setMaximumHeight(26)
+            # Table row height (already set, enforce again to be safe)
+            if hasattr(self, 'tf_table') and self.tf_table is not None:
+                try:
+                    self.tf_table.verticalHeader().setDefaultSectionSize(20)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1383,6 +1594,52 @@ class MainWindow(QMainWindow):
         if self.isFullScreen():
             self.showNormal()
             self.full_btn.setText("Fullscreen")
+
+    def set_overlay_all_visible(self, visible: bool):
+        """Toggle visibility of both the GL overlay (FPS/name) and the corner image overlay."""
+        try:
+            # GL overlay label inside OpenGLWidget
+            if hasattr(self.gl_widget, 'set_overlay_visible'):
+                self.gl_widget.set_overlay_visible(bool(visible))
+        except Exception:
+            pass
+        try:
+            # Corner image overlay label
+            if self._bg_image_label is not None:
+                self._bg_image_label.setVisible(bool(visible))
+        except Exception:
+            pass
+
+    def _resize_background_label(self):
+        """Place a small faint image at the bottom-left. Scales with window size but stays small."""
+        try:
+            if not self._bg_image_label:
+                return
+            cw = self.centralWidget()
+            if cw is None:
+                return
+            rect = cw.rect()
+            # Target a small area: ~22% of window width, capped, with 10px margin
+            margin = 10
+            tgt_w = max(160, int(rect.width() * 0.22))
+            tgt_w = min(tgt_w, 320)
+            if not self._bg_pix.isNull():
+                aspect = self._bg_pix.width() / self._bg_pix.height() if self._bg_pix.height() else 1.0
+                tgt_h = int(tgt_w / max(0.1, aspect))
+                scaled = self._bg_pix.scaled(tgt_w, tgt_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                self._bg_image_label.setPixmap(scaled)
+                self._bg_image_label.resize(scaled.size())
+                # Position at bottom-left with margin
+                x = margin
+                y = rect.height() - scaled.height() - margin
+                self._bg_image_label.move(x, y)
+                self._bg_image_label.raise_()
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._resize_background_label()
 
     def toggle_maximize(self):
         if self.isMaximized():
