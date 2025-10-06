@@ -12,6 +12,7 @@ import json
 from PyQt6.QtGui import QSurfaceFormat  # <-- Import QSurfaceFormat
 
 import volumerenderer
+import pyqtgraph as pg
 from opengl_widget import OpenGLWidget
 
 class MainWindow(QMainWindow):
@@ -145,6 +146,19 @@ class MainWindow(QMainWindow):
         self.cmap_combo.addItems(self.cmap_presets)
         self.cmap_combo.currentIndexChanged.connect(self.on_cmap_changed)
         controls_layout.addWidget(self.cmap_combo)
+        # Map our preset indices to pyqtgraph preset names
+        self._pg_preset_map = {
+            0: 'grey',      # Grayscale
+            1: 'grey',      # Grayscale (Inverted) -> will reverse
+            2: 'hot',
+            3: 'cool',
+            4: 'spring',
+            5: 'summer',
+            6: 'autumn',
+            7: 'winter',
+            8: 'jet',
+            9: 'viridis',
+        }
 
         # Bounding box scale slider (0.1x .. 5.0x)
         bbox_row = QHBoxLayout()
@@ -245,12 +259,41 @@ class MainWindow(QMainWindow):
         tf_mode_row.addWidget(self.tf_mode_combo)
         self.tf_panel_layout.addLayout(tf_mode_row)
 
-        # Preset helper (reuse existing cmap combo)
-        preset_row = QHBoxLayout()
+        # Preset helper (reuse existing cmap combo) — wrap in a QWidget to control visibility
+        self.preset_row = QWidget()
+        preset_row = QHBoxLayout(self.preset_row)
+        preset_row.setContentsMargins(0, 0, 0, 0)
         preset_row.addWidget(QLabel("Preset"))
         self.tf_preset_combo = self.cmap_combo  # reuse
         preset_row.addWidget(self.tf_preset_combo)
-        self.tf_panel_layout.addLayout(preset_row)
+        self.tf_panel_layout.addWidget(self.preset_row)
+
+        # Custom Preset selector (only used in Custom mode)
+        self.custom_preset_row = QWidget()
+        custom_row_layout = QHBoxLayout(self.custom_preset_row)
+        custom_row_layout.setContentsMargins(0, 0, 0, 0)
+        custom_row_layout.addWidget(QLabel("Custom Preset"))
+        self.custom_cmap_combo = QComboBox()
+        # Provide a comprehensive list of pyqtgraph presets
+        self._custom_presets = [
+            ("Grey", "grey"),
+            ("Grey Clip", "greyclip"),
+            ("Thermal", "thermal"),
+            ("Flame", "flame"),
+            ("Yellowy", "yellowy"),
+            ("Bipolar", "bipolar"),
+            ("Spectrum (HSV)", "spectrum"),
+            ("Cyclic (HSV)", "cyclic"),
+            ("Viridis", "viridis"),
+            ("Inferno", "inferno"),
+            ("Plasma", "plasma"),
+            ("Magma", "magma"),
+            ("Turbo", "turbo"),
+        ]
+        self.custom_cmap_combo.addItems([name for name, _ in self._custom_presets])
+        self.custom_cmap_combo.currentIndexChanged.connect(self.on_custom_cmap_changed)
+        custom_row_layout.addWidget(self.custom_cmap_combo)
+        self.tf_panel_layout.addWidget(self.custom_preset_row)
 
         # Custom TF table
         self.tf_table = QTableWidget(0, 5)
@@ -266,6 +309,21 @@ class MainWindow(QMainWindow):
         self.tf_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.tf_table.setShowGrid(False)
         self.tf_panel_layout.addWidget(self.tf_table)
+
+        # PyQtGraph Gradient Editor (for interactive control points)
+        # Place inside a GraphicsLayoutWidget and below the table
+        self._updating_from_gradient = False
+        self._updating_from_table = False
+        self.tf_graphics = pg.GraphicsLayoutWidget()
+        self.gradient_editor = pg.GradientEditorItem()
+        # Nice default preset for visibility
+        try:
+            self.gradient_editor.loadPreset('inferno')
+        except Exception:
+            pass
+        self.gradient_editor.sigGradientChanged.connect(self.on_gradient_changed)
+        self.tf_graphics.addItem(self.gradient_editor)
+        self.tf_panel_layout.addWidget(self.tf_graphics)
 
         # Buttons for TF editing
         tf_btn_row = QHBoxLayout()
@@ -290,6 +348,8 @@ class MainWindow(QMainWindow):
         self.tf_seed_default()
         # Ensure table height matches its content
         self._resize_tf_table_to_contents()
+        # Set initial visibility based on current TF mode (default Preset hides editor/table)
+        self._update_tf_mode_visibility()
 
 
         # Spacer to push items up
@@ -405,11 +465,22 @@ class MainWindow(QMainWindow):
             pass
 
     def on_cmap_changed(self, idx: int):
+        # Always reflect preset selection to backend when in Preset mode,
+        # because Apply/Reset are hidden in this mode.
+        is_preset_mode = (self.tf_mode_combo.currentIndex() == 0)
         try:
+            if is_preset_mode and hasattr(self.renderer, 'set_colormap_mode_custom'):
+                self.renderer.set_colormap_mode_custom(False)
             if hasattr(self.renderer, 'set_colormap_preset'):
                 self.renderer.set_colormap_preset(int(idx))
         except Exception:
             pass
+        if is_preset_mode:
+            # Keep UI gradient/table in sync with the selected preset
+            try:
+                self._apply_preset_to_gradient(int(idx))
+            except Exception:
+                pass
 
     # --- VTK helpers ---
     def toggle_vtk_panel(self, checked: bool):
@@ -446,11 +517,19 @@ class MainWindow(QMainWindow):
         try:
             if hasattr(self.renderer, 'set_colormap_mode_custom'):
                 self.renderer.set_colormap_mode_custom(bool(use_custom))
-            # If switching back to preset, reapply the current preset
+            # If switching to Preset, immediately apply the current preset selection
             if not use_custom and hasattr(self.renderer, 'set_colormap_preset'):
                 self.renderer.set_colormap_preset(int(self.cmap_combo.currentIndex()))
         except Exception:
             pass
+        # In Preset mode, immediately sync gradient/table since Apply is hidden
+        if not use_custom:
+            try:
+                self._apply_preset_to_gradient(int(self.cmap_combo.currentIndex()))
+            except Exception:
+                pass
+        # Update visibility of editor/table/buttons based on mode
+        self._update_tf_mode_visibility()
         self.gl_widget.update()
 
     def tf_seed_default(self):
@@ -465,6 +544,8 @@ class MainWindow(QMainWindow):
         for p in defaults:
             self.tf_add_point(values=p)
         self._resize_tf_table_to_contents()
+        # Initialize the gradient editor to match the default table
+        self._update_gradient_from_table()
 
     def tf_add_point(self, values=None):
         # QPushButton.clicked(bool) may pass a boolean; treat it as no values provided
@@ -484,6 +565,8 @@ class MainWindow(QMainWindow):
             # Compact spin boxes to avoid horizontal overflow
             spin.setMinimumWidth(50)
             spin.setMaximumWidth(80)
+            # When a value changes in the table, update the gradient editor (unless we are already syncing)
+            spin.valueChanged.connect(self.on_tf_table_changed)
             self.tf_table.setCellWidget(row, c, spin)
         self._resize_tf_table_to_contents()
 
@@ -529,6 +612,30 @@ class MainWindow(QMainWindow):
             pass
 
     def tf_apply_custom(self):
+        """Apply button handler.
+        - If Mode is Preset: apply current preset to renderer and mirror into gradient/table.
+        - If Mode is Custom: apply table points to renderer and mirror into gradient (as before).
+        """
+        mode_is_custom = (self.tf_mode_combo.currentIndex() == 1)
+        if not mode_is_custom:
+            # Preset mode: apply selected preset and update gradient/table from it
+            idx = int(self.cmap_combo.currentIndex())
+            try:
+                if hasattr(self.renderer, 'set_colormap_mode_custom'):
+                    self.renderer.set_colormap_mode_custom(False)
+                if hasattr(self.renderer, 'set_colormap_preset'):
+                    self.renderer.set_colormap_preset(idx)
+            except Exception as e:
+                print(f"Python: Preset apply error: {e}")
+            # Reflect preset in UI gradient/table
+            try:
+                self._apply_preset_to_gradient(idx)
+            except Exception:
+                pass
+            self.gl_widget.update()
+            return
+
+        # Custom mode: apply TF points to renderer
         pts = self._collect_tf_points()
         if not pts:
             return
@@ -539,18 +646,177 @@ class MainWindow(QMainWindow):
                 self.renderer.set_transfer_function_points(pts)
         except Exception as e:
             print(f"Python: TF apply error: {e}")
+        # Keep gradient synced from the applied table points
+        self._update_gradient_from_table()
         self.gl_widget.update()
 
     def tf_reset_to_preset(self):
-        # Switch mode and reapply preset from main preset combo
+        """Reset colormap to default (Grayscale) and switch to Preset mode.
+        Applies to renderer and syncs gradient/table. Hides editor as per Preset mode.
+        """
+        # Force Mode = Preset
+        try:
+            if self.tf_mode_combo.currentIndex() != 0:
+                self.tf_mode_combo.blockSignals(True)
+                self.tf_mode_combo.setCurrentIndex(0)
+                self.tf_mode_combo.blockSignals(False)
+        except Exception:
+            pass
+        # Set Preset dropdown to Grayscale (index 0)
+        try:
+            if self.cmap_combo.currentIndex() != 0:
+                self.cmap_combo.blockSignals(True)
+                self.cmap_combo.setCurrentIndex(0)
+                self.cmap_combo.blockSignals(False)
+        except Exception:
+            pass
+        # Apply to renderer
         try:
             if hasattr(self.renderer, 'set_colormap_mode_custom'):
                 self.renderer.set_colormap_mode_custom(False)
             if hasattr(self.renderer, 'set_colormap_preset'):
-                self.renderer.set_colormap_preset(int(self.cmap_combo.currentIndex()))
+                self.renderer.set_colormap_preset(0)
         except Exception:
             pass
+        # Sync gradient/table to grayscale preset and update visibility
+        try:
+            self._apply_preset_to_gradient(0)
+        except Exception:
+            pass
+        self._update_tf_mode_visibility()
         self.gl_widget.update()
+
+    def _apply_preset_to_gradient(self, idx: int):
+        """Apply the selected preset to the gradient editor and mirror into the table.
+        Handles inverted grayscale by reversing tick positions."""
+        # Avoid feedback loops: we will drive updates from gradient to table
+        # Load pyqtgraph preset
+        name = self._pg_preset_map.get(int(idx), 'viridis')
+        try:
+            self.gradient_editor.loadPreset(name)
+        except Exception:
+            # fallback: keep existing gradient
+            pass
+        # If inverted grayscale, reverse the ticks
+        if int(idx) == 1:
+            try:
+                state = self.gradient_editor.saveState()
+                ticks = state.get('ticks', [])
+                inv_ticks = []
+                for pos, rgba in ticks:
+                    inv_ticks.append((1.0 - float(pos), rgba))
+                inv_ticks.sort(key=lambda t: t[0])
+                self.gradient_editor.restoreState({'mode': state.get('mode', 'rgb'), 'ticks': inv_ticks})
+            except Exception:
+                pass
+        # Sync the table from the gradient
+        self.on_gradient_changed()
+
+    def _update_tf_mode_visibility(self):
+        """Show/hide TF editor and numeric table depending on Mode.
+        - Preset: hide gradient editor, hide numeric table, hide Add/Remove.
+        - Custom: show gradient editor and table, show Add/Remove, show Custom Preset selector.
+        Apply/Reset are visible only in Custom mode.
+        """
+        try:
+            use_custom = (self.tf_mode_combo.currentIndex() == 1)
+            if hasattr(self, 'tf_table'):
+                self.tf_table.setVisible(use_custom)
+            if hasattr(self, 'tf_graphics'):
+                self.tf_graphics.setVisible(use_custom)
+            if hasattr(self, 'tf_add_btn'):
+                self.tf_add_btn.setVisible(use_custom)
+            if hasattr(self, 'tf_remove_btn'):
+                self.tf_remove_btn.setVisible(use_custom)
+            if hasattr(self, 'custom_preset_row'):
+                self.custom_preset_row.setVisible(use_custom)
+            if hasattr(self, 'preset_row'):
+                self.preset_row.setVisible(not use_custom)
+            # Apply/Reset: visible only in Custom mode per request
+            if hasattr(self, 'tf_apply_btn'):
+                self.tf_apply_btn.setVisible(use_custom)
+            if hasattr(self, 'tf_reset_btn'):
+                self.tf_reset_btn.setVisible(use_custom)
+        except Exception:
+            pass
+
+    def on_custom_cmap_changed(self, idx: int):
+        """When in Custom mode, selecting a custom preset should load its control points
+        into the gradient editor and mirror to the table. Does not apply to renderer
+        until the user presses Apply."""
+        try:
+            if self.tf_mode_combo.currentIndex() != 1:
+                return  # Only active in Custom mode
+            # Look up the pyqtgraph preset key and load it
+            if 0 <= idx < len(self._custom_presets):
+                _, key = self._custom_presets[idx]
+                self.gradient_editor.loadPreset(key)
+                # Mirror gradient ticks into table
+                self.on_gradient_changed()
+        except Exception:
+            pass
+
+    # --- Gradient/TF synchronization helpers ---
+    def on_gradient_changed(self):
+        """When the user edits the gradient editor, update the TF table points."""
+        if self._updating_from_table:
+            return
+        self._updating_from_gradient = True
+        try:
+            state = self.gradient_editor.saveState()
+            ticks = state.get('ticks', [])
+            # ticks are (pos, (r,g,b,a)) with 0-255 ints; convert to 0-1 floats
+            pts = []
+            for pos, rgba in ticks:
+                try:
+                    r, g, b, a = rgba
+                except Exception:
+                    # Some versions might give QColor; try to extract
+                    try:
+                        r = rgba.red()
+                        g = rgba.green()
+                        b = rgba.blue()
+                        a = rgba.alpha()
+                    except Exception:
+                        r = g = b = a = 255
+                pts.append((float(pos), r/255.0, g/255.0, b/255.0, a/255.0))
+            # Sort and update the table
+            pts.sort(key=lambda t: t[0])
+            self.tf_table.setRowCount(0)
+            for p in pts:
+                self.tf_add_point(values=p)
+            self._resize_tf_table_to_contents()
+        finally:
+            self._updating_from_gradient = False
+        # Do not auto-apply to renderer here; user can press Apply or switch to Custom mode
+
+    def _update_gradient_from_table(self):
+        """Rebuild gradient ticks from the TF table values and apply to the editor."""
+        if self._updating_from_gradient:
+            return
+        self._updating_from_table = True
+        try:
+            pts = self._collect_tf_points()
+            # Build restoreState-compatible dict
+            ticks = []
+            for pos, r, g, b, a in pts:
+                rr = int(max(0, min(255, round(r * 255))))
+                gg = int(max(0, min(255, round(g * 255))))
+                bb = int(max(0, min(255, round(b * 255))))
+                aa = int(max(0, min(255, round(a * 255))))
+                ticks.append((float(pos), (rr, gg, bb, aa)))
+            state = {'mode': 'rgb', 'ticks': ticks}
+            self.gradient_editor.restoreState(state)
+        except Exception:
+            pass
+        finally:
+            self._updating_from_table = False
+
+    def on_tf_table_changed(self, _val=None):
+        """When any spin box in the TF table changes, mirror it into the gradient editor."""
+        if self._updating_from_gradient:
+            return
+        self._update_gradient_from_table()
 
     def on_vtk_field_changed(self, idx: int):
         try:
